@@ -1,3 +1,4 @@
+import { documentContentUrl } from './types'
 import type { PdfDocument } from './types'
 
 type PdfPreviewProps = {
@@ -14,12 +15,12 @@ export function PdfPreview({ document }: PdfPreviewProps) {
         <div className="min-w-0">
           <span className="text-xs font-bold tracking-[0.12em] text-eyebrow uppercase">Preview</span>
           <h2 id="preview-heading" className="mt-1 break-words text-lg font-semibold tracking-[-0.02em]">
-            {document?.name ?? 'Select a PDF'}
+            {document?.filename ?? 'Select a PDF'}
           </h2>
         </div>
         {document && (
           <a
-            href={document.url}
+            href={documentContentUrl(document.id)}
             target="_blank"
             rel="noopener noreferrer"
             className="shrink-0 text-[13px] font-bold text-accent hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-focus"
@@ -31,8 +32,8 @@ export function PdfPreview({ document }: PdfPreviewProps) {
       {document ? (
         <iframe
           className="block h-[min(72vh,900px)] min-h-[420px] w-full border-0"
-          src={document.url}
-          title={`Preview of ${document.name}`}
+          src={documentContentUrl(document.id)}
+          title={`Preview of ${document.filename}`}
         />
       ) : (
         <div className="grid h-[min(72vh,900px)] min-h-[420px] place-items-center p-6 text-center text-sm text-subtle">
