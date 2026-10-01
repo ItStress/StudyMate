@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-canvas: #f5f7f3;
+  --color-ink: #20302b;
+  --color-muted: #62716a;
+  --color-subtle: #748079;
+  --color-eyebrow: #547d69;
+  --color-accent: #286247;
+  --color-accent-hover: #1e5139;
+  --color-accent-soft: #eaf2ec;
+  --color-accent-selected: #edf5ef;
+  --color-stroke: #e0e9e1;
+  --color-divider: #edf1ed;
+  --color-danger: #a33b32;
+  --color-focus: #78a994;
+  --shadow-panel: 0 12px 32px rgb(30 58 44 / 5%);
+}
