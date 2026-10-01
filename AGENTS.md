@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`frontend/` contains the React, TypeScript, and Vite app. Its entry point is `frontend/src/main.tsx`; `frontend/index.html` hosts it, and `frontend/dist/` is generated build output. `backend/` contains the Python 3.12+ FastAPI app under `backend/src/studymate/`; `main.py` defines the current `/health` endpoint. Dependency manifests are `frontend/package.json` and `backend/pyproject.toml`, with lockfiles beside them. The root `README.md` describes the planned product. Upload, retrieval, chat, and database features are plans, not current modules. There are no test or source asset directories yet.
+`frontend/` contains the React, TypeScript, Vite, and Tailwind CSS app. `frontend/src/main.tsx` mounts `App.tsx`; feature-specific components, hooks, and types belong together under `frontend/src/features/`. `frontend/src/style.css` imports Tailwind, `frontend/index.html` hosts the app, and `frontend/dist/` is generated build output. The current PDF picker and preview run entirely in the browser without sending or storing files. `backend/` contains the Python 3.12+ FastAPI app under `backend/src/studymate/`; `main.py` defines the current `/health` endpoint. Dependency manifests are `frontend/package.json` and `backend/pyproject.toml`, with lockfiles beside them. The root `README.md` describes the planned product. Retrieval, chat, and database features are plans, not current modules. There are no test or source asset directories yet.
 
 ## Build, Test, and Development Commands
 
@@ -18,6 +18,8 @@ Run commands from the named subdirectory:
 ## Coding Style & Naming Conventions
 
 Follow the existing TypeScript style: two-space indentation, single-quoted strings, and no semicolons. Use PascalCase for React components, camelCase for variables and functions, and `.tsx` for files containing JSX. Keep TypeScript types explicit where inference is unclear; the app compiler rejects unused locals and parameters. Follow Python's four-space indentation and snake_case functions and modules; add type hints for API return values. Run the frontend lint and build checks before submitting changes. No Python formatter or linter is configured yet.
+
+For frontend work, keep `App.tsx` focused on page composition. Group related UI, types, and behavior by feature; use small components with typed props, and move reusable stateful behavior into custom hooks. Derive values from state instead of duplicating state, and clean up browser resources such as object URLs in effects. Keep user-facing text in English. Style components with Tailwind utility classes, including responsive and interaction states; reserve `style.css` for the Tailwind import and shared theme tokens rather than page-specific CSS rules. Avoid adding a component library or custom CSS when Tailwind utilities suffice.
 
 ## Testing Guidelines
 

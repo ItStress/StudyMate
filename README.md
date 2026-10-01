@@ -2,7 +2,7 @@
 
 StudyMate is a web app for asking questions about your own study materials. Its goal is to turn uploaded PDFs and notes into answers that cite the source document, page, and supporting passage, so every answer can be checked against the original material.
 
-The project is at an early stage. The repository currently contains a React frontend scaffold and a FastAPI backend with a health endpoint. Document upload, retrieval, chat, and local AI inference are planned features, not yet implemented.
+The project is at an early stage. The React frontend can select multiple PDFs and preview them locally in the browser. Files are cleared on refresh and are not sent to the FastAPI backend, which currently has a health endpoint. Persistent document upload, retrieval, chat, and local AI inference are planned features.
 
 ## Planned features
 
@@ -18,7 +18,7 @@ The project is at an early stage. The repository currently contains a React fron
 
 StudyMate will use retrieval-augmented generation (RAG). During ingestion, the backend will extract text from each page, split it into passages, and store each passage with its document and page number. At question time, it will retrieve passages from the selected documents and provide them to a locally hosted language model. The backend will return the answer together with references to the passages used.
 
-The intended stack uses open-source components: React, TypeScript, and Vite for the frontend; Python and FastAPI for the backend; PostgreSQL with pgvector for storage and retrieval; and locally run embedding and language models. These RAG components are not installed or connected yet.
+The intended stack uses open-source components: React, TypeScript, Vite, and Tailwind CSS for the frontend; Python and FastAPI for the backend; PostgreSQL with pgvector for storage and retrieval; and locally run embedding and language models. These RAG components are not installed or connected yet.
 
 ## Repository layout
 
@@ -50,7 +50,7 @@ npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite, usually `http://localhost:5173`. The frontend currently displays a placeholder and does not call the backend yet.
+Open the URL printed by Vite, usually `http://localhost:5173`. The frontend lets you select and preview PDFs locally and does not call the backend yet.
 
 ## Current checks
 
