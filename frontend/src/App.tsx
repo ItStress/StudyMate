@@ -8,6 +8,9 @@ export default function App() {
     selectedId,
     selectedDocument,
     error,
+    isLoading,
+    isUploading,
+    deletingId,
     addFiles,
     selectDocument,
     removeDocument,
@@ -22,7 +25,7 @@ export default function App() {
           </span>
           <h1 className="mt-2 text-4xl font-bold tracking-[-0.045em] sm:text-5xl">StudyMate</h1>
           <p className="mt-2.5 text-base text-muted">
-            Add PDFs to view them here. Your files stay in this browser session.
+            Add PDFs to your local library and preview them here.
           </p>
         </header>
 
@@ -31,6 +34,9 @@ export default function App() {
             documents={documents}
             selectedId={selectedId}
             error={error}
+            isLoading={isLoading}
+            isUploading={isUploading}
+            deletingId={deletingId}
             onFilesSelected={addFiles}
             onSelectDocument={selectDocument}
             onRemoveDocument={removeDocument}

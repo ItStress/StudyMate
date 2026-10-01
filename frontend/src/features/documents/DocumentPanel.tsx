@@ -4,17 +4,23 @@ import type { PdfDocument } from './types'
 
 type DocumentPanelProps = {
   documents: PdfDocument[]
-  selectedId: number | null
+  selectedId: string | null
   error: string
+  isLoading: boolean
+  isUploading: boolean
+  deletingId: string | null
   onFilesSelected: (files: FileList | null) => void
-  onSelectDocument: (id: number) => void
-  onRemoveDocument: (id: number) => void
+  onSelectDocument: (id: string) => void
+  onRemoveDocument: (id: string) => void
 }
 
 export function DocumentPanel({
   documents,
   selectedId,
   error,
+  isLoading,
+  isUploading,
+  deletingId,
   onFilesSelected,
   onSelectDocument,
   onRemoveDocument,
@@ -49,10 +55,11 @@ export function DocumentPanel({
         />
         <button
           type="button"
-          className="cursor-pointer rounded-[9px] bg-accent px-3.5 py-2.5 text-[13px] font-semibold whitespace-nowrap text-white hover:bg-accent-hover focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-focus"
+          className="cursor-pointer rounded-[9px] bg-accent px-3.5 py-2.5 text-[13px] font-semibold whitespace-nowrap text-white hover:bg-accent-hover focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={isLoading || isUploading}
           onClick={() => fileInput.current?.click()}
         >
-          Add PDFs
+          {isUploading ? 'Uploading...' : 'Add PDFs'}
         </button>
       </div>
 
@@ -66,8 +73,8 @@ export function DocumentPanel({
           >
             PDF
           </div>
-          <p className="font-semibold">No PDFs added yet</p>
-          <span className="mt-1.5 text-[13px] text-subtle">Choose one or more files to get started.</span>
+          <p className="font-semibold">{isLoading ? 'Loading PDFs...' : 'No PDFs added yet'}</p>
+          {!isLoading && <span className="mt-1.5 text-[13px] text-subtle">Choose one or more files to get started.</span>}
         </div>
       ) : (
         <ul className="max-h-[260px] list-none overflow-auto p-2.5 lg:max-h-[65vh]">
@@ -85,13 +92,14 @@ export function DocumentPanel({
                 >
                   PDF
                 </span>
-                <span className="min-w-0 truncate text-sm font-medium">{document.name}</span>
+                <span className="min-w-0 truncate text-sm font-medium">{document.filename}</span>
               </button>
               <button
                 type="button"
-                className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-[10px] text-subtle hover:bg-red-50 hover:text-danger focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus"
-                aria-label={`Remove ${document.name}`}
-                title={`Remove ${document.name}`}
+                className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-[10px] text-subtle hover:bg-red-50 hover:text-danger focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={`Remove ${document.filename}`}
+                title={`Remove ${document.filename}`}
+                disabled={deletingId !== null}
                 onClick={() => onRemoveDocument(document.id)}
               >
                 <svg

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: studymate
+      POSTGRES_USER: studymate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studymate-local}
+    ports:
+      - '127.0.0.1:${STUDYMATE_POSTGRES_PORT:-15432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/docker-init/01-test-db.sql:/docker-entrypoint-initdb.d/01-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U studymate -d studymate']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
