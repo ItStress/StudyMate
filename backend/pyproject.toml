@@ -1,0 +1,22 @@
+[project]
+name = "studymate"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "ItStress", email = "marconapolitano02@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.142.2",
+]
+
+[project.scripts]
+studymate = "studymate:main"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.fastapi]
+entrypoint = "studymate.main:app"
