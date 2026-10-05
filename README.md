@@ -2,7 +2,7 @@
 
 StudyMate is a web app for asking questions about your own study materials. Its goal is to turn uploaded PDFs and notes into answers that cite the source document, page, and supporting passage, so every answer can be checked against the original material.
 
-The project is at an early stage. The React frontend uploads PDFs through FastAPI, lists and previews saved documents, and removes them from PostgreSQL. Retrieval, chat, and local AI inference are planned features.
+The project is at an early stage. The React frontend uploads PDFs through FastAPI, lists and previews saved documents, and removes them from PostgreSQL. FastAPI can also answer general questions through a locally running Ollama model. PDF retrieval and the chat frontend are planned features.
 
 ## Planned features
 
@@ -57,6 +57,8 @@ uv run studymate
 
 On a POSIX shell, use `export DATABASE_URL=postgresql://studymate:studymate-local@127.0.0.1:15432/studymate` before the same two `uv run` commands. Match the URL port to `STUDYMATE_POSTGRES_PORT` and the password to Docker's `POSTGRES_PASSWORD`. Do not commit real database passwords. Re-run `uv run studymate-migrate` after future schema changes.
 
+If `uv run studymate-migrate` fails with `ModuleNotFoundError: No module named 'studymate'` on macOS, the editable install may be hidden from Python. Run `uv run --no-editable studymate-migrate` and `uv run --no-editable studymate` instead. This installs a copy of the backend package in the virtual environment, so run `uv sync --no-editable --reinstall-package studymate` after changing backend source files.
+
 The API listens on `http://127.0.0.1:8000`. Check `http://127.0.0.1:8000/health` for `{"status":"ok"}`. Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 
 Start the frontend in another terminal:
@@ -70,6 +72,14 @@ npm run dev
 Open the URL printed by Vite, usually `http://localhost:5173`. Vite proxies `/api` to the local FastAPI server. In a deployed setup, route `/api` to FastAPI on the same origin as the frontend.
 
 The API provides `POST /api/documents` (multipart field `file`), `GET /api/documents`, `GET /api/documents/{id}/content`, and `DELETE /api/documents/{id}`. Each PDF must be at most 25 MiB. The browser checks type, size, and PDF signature for quick feedback; FastAPI repeats validation, rejects encrypted or malformed PDFs, and stores the original bytes with metadata. This first version is for trusted local single-user use and has no authentication.
+
+## Local language model
+
+Install and start [Ollama](https://ollama.com/download) on the same computer as the backend, then run `ollama pull qwen3:4b`. StudyMate uses `qwen3:4b` by default. To use another downloaded model, set `OLLAMA_CHAT_MODEL` to its name in the backend shell. The default Ollama URL is `http://127.0.0.1:11434`; set `OLLAMA_BASE_URL` if yours differs. `backend/.env.example` lists these variables. The backend reads shell environment variables; it does not load the example file automatically.
+
+Start the API with `cd backend && uv run studymate`. Open `/docs` and call `POST /api/chat` with `{"question":"Explain gravity simply"}`. The response is `{"answer":"..."}`. The endpoint currently answers general questions only; it does not read uploaded PDFs or provide citations. Ollama errors are reported as `502`, connection errors or an empty model setting as `503`, and timeouts as `504`.
+
+The chat request disables the model's thinking mode for faster answers and allows up to three minutes for Ollama to respond. The first answer can take longer while Ollama loads the model. If `/api/chat` still times out, try the same question directly with `ollama run qwen3:4b` to check whether the model runs on your computer.
 
 ## Current checks
 
