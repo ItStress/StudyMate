@@ -11,6 +11,8 @@ export default function App() {
     isLoading,
     isUploading,
     deletingId,
+    retryingId,
+    retryDocument,
     addFiles,
     selectDocument,
     removeDocument,
@@ -37,6 +39,8 @@ export default function App() {
             isLoading={isLoading}
             isUploading={isUploading}
             deletingId={deletingId}
+            retryingId={retryingId}
+            onRetryDocument={retryDocument}
             onFilesSelected={addFiles}
             onSelectDocument={selectDocument}
             onRemoveDocument={removeDocument}

@@ -1,5 +1,6 @@
 import { documentContentUrl } from './types'
 import type { PdfDocument } from './types'
+import { PreparationInspector } from './PreparationInspector'
 
 type PdfPreviewProps = {
   document: PdfDocument | undefined
@@ -30,11 +31,7 @@ export function PdfPreview({ document }: PdfPreviewProps) {
         )}
       </div>
       {document ? (
-        <iframe
-          className="block h-[min(72vh,900px)] min-h-[420px] w-full border-0"
-          src={documentContentUrl(document.id)}
-          title={`Preview of ${document.filename}`}
-        />
+        <PreparationInspector key={document.id} document={document} />
       ) : (
         <div className="grid h-[min(72vh,900px)] min-h-[420px] place-items-center p-6 text-center text-sm text-subtle">
           Your selected PDF will appear here.

@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.142.2",
+    "pdfplumber>=0.11.10",
     "pgvector>=0.5.0",
     "psycopg[binary]>=3.3.6",
     "pypdf>=6.19.0",
@@ -17,6 +18,7 @@ dependencies = [
 [project.scripts]
 studymate = "studymate:main"
 studymate-migrate = "studymate.migrations:main"
+studymate-worker = "studymate.worker:main"
 
 [build-system]
 requires = ["uv_build>=0.12.21,<0.13.0"]
