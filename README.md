@@ -2,13 +2,12 @@
 
 StudyMate is a web app for asking questions about your own study materials. Its goal is to turn uploaded PDFs and notes into answers that cite the source document, page, and supporting passage, so every answer can be checked against the original material.
 
-The project is at an early stage. The React frontend uploads PDFs through FastAPI, lists and previews saved documents, and removes them from PostgreSQL. Retrieval, chat, and local AI inference are planned features.
+The project is at an early stage. The React frontend uploads PDFs through FastAPI, lists and previews saved documents, and removes them from PostgreSQL. A local worker prepares page text and passages for future retrieval. Retrieval, embeddings, chat, and local AI inference are planned features.
 
 ## Planned features
 
 - Organize PDF documents into collections.
-- Extract text while preserving the source page number. Add OCR for scanned PDFs.
-- Show document processing progress and errors.
+- Add OCR for scanned PDFs and support more complex layouts.
 - Ask questions about one or more selected documents.
 - Return answers with clickable citations and relevant source passages.
 - Say when the selected documents do not provide enough evidence.
@@ -18,7 +17,7 @@ The project is at an early stage. The React frontend uploads PDFs through FastAP
 
 StudyMate will use retrieval-augmented generation (RAG). During ingestion, the backend will extract text from each page, split it into passages, and store each passage with its document and page number. At question time, it will retrieve passages from the selected documents and provide them to a locally hosted language model. The backend will return the answer together with references to the passages used.
 
-The stack uses React, TypeScript, Vite, and Tailwind CSS for the frontend; Python and FastAPI for the backend; and PostgreSQL for PDF storage. pgvector, text extraction, and locally run embedding and language models are planned for retrieval.
+The stack uses React, TypeScript, Vite, and Tailwind CSS for the frontend; Python and FastAPI for the backend; and PostgreSQL for PDF storage, extracted pages, passages, and the preparation queue. pypdf extracts page text. Vector storage and locally run embedding and language models are planned for retrieval.
 
 ## Repository layout
 
@@ -59,6 +58,16 @@ On a POSIX shell, use `export DATABASE_URL=postgresql://studymate:studymate-loca
 
 The API listens on `http://127.0.0.1:8000`. Check `http://127.0.0.1:8000/health` for `{"status":"ok"}`. Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 
+Start the preparation worker in a separate terminal with the same `DATABASE_URL`:
+
+```powershell
+cd backend
+$env:DATABASE_URL = 'postgresql://studymate:studymate-local@127.0.0.1:15432/studymate'
+uv run studymate-worker
+```
+
+Use `export DATABASE_URL=...` instead on POSIX shells. Only one worker can run against a database at a time. Keep it running alongside the API; if it is stopped, uploads still succeed and remain queued. After `uv sync` and `uv run studymate-migrate`, existing PDFs are automatically queued as well. Original PDF bytes are preserved.
+
 Start the frontend in another terminal:
 
 ```sh
@@ -70,6 +79,33 @@ npm run dev
 Open the URL printed by Vite, usually `http://localhost:5173`. Vite proxies `/api` to the local FastAPI server. In a deployed setup, route `/api` to FastAPI on the same origin as the frontend.
 
 The API provides `POST /api/documents` (multipart field `file`), `GET /api/documents`, `GET /api/documents/{id}/content`, and `DELETE /api/documents/{id}`. Each PDF must be at most 25 MiB. The browser checks type, size, and PDF signature for quick feedback; FastAPI repeats validation, rejects encrypted or malformed PDFs, and stores the original bytes with metadata. This first version is for trusted local single-user use and has no authentication.
+
+## PDF preparation
+
+Uploads include a persistent preparation record in the same transaction. The worker polls PostgreSQL every two seconds when idle, processes one document at a time, and records progress after each page. The document list refreshes while work is pending and displays progress, errors, and a retry button for failed preparations. The worker requeues interrupted attempts when restarted; processing errors require manual retry.
+
+Preparation uses pdfplumber/PDFium locally without AI models or OCR. It orders selectable text geometrically, handles common two-column layouts, and excludes repeated margin text while retaining it for inspection. It extracts ruled and aligned numeric tables, preserves likely equations as text with crops, and renders bitmap/vector graphics with existing captions when identifiable. Classification, table headers, reading order, and caption association are heuristic; inspect warnings and compare with the original. Full-page images preserve evidence when region recovery is uncertain.
+
+Rendering limits the longest image edge to 1,800 pixels, region crops to 128 per page, graphic clustering to 2,000 drawing objects per page, and retained images to 64 MiB per document. Images are staged on temporary disk and published sequentially rather than accumulated in memory. If a limit or rendering failure prevents evidence recovery, the inspector warns and the original PDF remains available.
+
+Select a document to inspect each physical page beside its rendered original. Tables show rows and cells, equations show available symbols and crops, and diagrams show crops with source captions. Use Previous/Next or the physical-page input, and open the PDF directly if rendering fails. Downloads and manual corrections are not part of this version.
+
+Passages never cross physical page boundaries. Plain-text passages target 2,000 Unicode characters with up to 200 characters of overlap. Structured content retains block references: table passages split between rows and repeat available headers; equation text stays together with its crop reference. A single oversized row or equation can exceed the target to preserve its evidence. Plain-text offsets refer to normalized page text; structured passages use null offsets and `content_refs` rather than pretending generated header repetition is one contiguous source range.
+
+Results become available together only after processing completes. States are `queued`, `processing`, `ready`, `ready_with_warnings`, `no_text`, and `failed`. Pages without extractable text remain inspectable but generate no passages. Mixed documents expose useful content with page-specific warnings; wholly textless documents finish as `no_text`. Empty text may indicate a blank page or a scan and does not prove that OCR is needed. Deleting a document also deletes its preparation, published metadata, pages, passages, and images.
+
+Use Reprocess to regenerate completed documents explicitly; upgrades do not automatically reprocess them. Current-attempt state is separate from `published` metadata. Old published results remain visible while a new attempt runs and after failure, and a new usable result replaces them atomically. A rerun that recovers no text does not replace a previously text-bearing publication. Existing completed v1 results remain accessible after migration; reprocess them to get the richer v2 artifacts.
+
+Additional endpoints:
+
+- `POST /api/documents/{id}/prepare` queues explicit preparation/reprocessing (`202`); already queued/running documents return `409`, missing documents `404`.
+- `GET /api/documents/{id}/pages` returns normalized text, typed blocks, warnings, `has_text`, and a page-image reference.
+- `GET /api/documents/{id}/chunks` returns passages with physical-page references, optional character offsets, and content-block references.
+- `GET /api/documents/{id}/assets/{asset_id}` serves published PNG evidence; old replaced or deleted assets return `404`.
+
+Both result endpoints accept `offset` (default 0) and `limit` (default 50, range 1–200), and return `{items, total, offset, limit, published}` in source order. An optional `publication_id` pins requests to the displayed extraction; a replaced publication returns `409`. Results remain available whenever a publication exists, independently of the current attempt. Upload/list metadata includes `preparation` for attempt progress and `published` for the displayed result's ID, version, counts, empty pages, status, and timestamp.
+
+This version prepares English PDFs with selectable text. It does not implement OCR, AI models, guaranteed LaTeX conversion, diagram interpretation, automatic cross-page table merging, embeddings, search, retrieval, or chat. Character-based chunk sizes are independent of a future embedding model's token limits. Representative study PDFs are still needed to assess extraction quality beyond the synthetic fixtures.
 
 ## Current checks
 

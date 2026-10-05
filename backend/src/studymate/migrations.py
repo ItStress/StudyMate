@@ -21,6 +21,108 @@ MIGRATIONS = (
             "CREATE INDEX documents_created_at_idx ON documents (created_at DESC, id DESC)",
         ),
     ),
+    (
+        2,
+        (
+            """
+            CREATE TABLE document_preparations (
+                document_id uuid PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+                status text NOT NULL DEFAULT 'queued' CHECK (status IN
+                    ('queued', 'processing', 'ready', 'ready_with_warnings', 'no_text', 'failed')),
+                phase text NOT NULL DEFAULT 'waiting' CHECK (phase IN ('waiting', 'extracting', 'chunking', 'complete')),
+                pages_processed integer NOT NULL DEFAULT 0 CHECK (pages_processed >= 0),
+                chunk_count integer NOT NULL DEFAULT 0 CHECK (chunk_count >= 0),
+                empty_pages integer[] NOT NULL DEFAULT '{}',
+                error text,
+                attempt_id uuid,
+                pipeline_version text NOT NULL DEFAULT '1',
+                chunk_size integer NOT NULL DEFAULT 2000,
+                chunk_overlap integer NOT NULL DEFAULT 200,
+                queued_at timestamptz NOT NULL DEFAULT now(),
+                started_at timestamptz,
+                finished_at timestamptz,
+                updated_at timestamptz NOT NULL DEFAULT now()
+            )
+            """,
+            "CREATE INDEX document_preparations_queue_idx ON document_preparations (queued_at, document_id) WHERE status = 'queued'",
+            "INSERT INTO document_preparations (document_id) SELECT id FROM documents",
+            """
+            CREATE TABLE document_pages (
+                document_id uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                page_number integer NOT NULL CHECK (page_number > 0),
+                text text NOT NULL,
+                has_text boolean NOT NULL,
+                PRIMARY KEY (document_id, page_number),
+                CHECK (has_text = (length(text) > 0))
+            )
+            """,
+            """
+            CREATE TABLE document_chunks (
+                id uuid PRIMARY KEY,
+                document_id uuid NOT NULL,
+                page_number integer NOT NULL,
+                chunk_index integer NOT NULL CHECK (chunk_index >= 0),
+                text text NOT NULL CHECK (length(text) > 0),
+                start_offset integer NOT NULL CHECK (start_offset >= 0),
+                end_offset integer NOT NULL CHECK (end_offset > start_offset),
+                UNIQUE (document_id, chunk_index),
+                FOREIGN KEY (document_id, page_number) REFERENCES document_pages(document_id, page_number) ON DELETE CASCADE,
+                CHECK (length(text) = end_offset - start_offset)
+            )
+            """,
+            "CREATE INDEX document_chunks_page_idx ON document_chunks (document_id, page_number)",
+        ),
+    ),
+    (
+        3,
+        (
+            """CREATE TABLE document_publications (
+                document_id uuid PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+                id uuid NOT NULL UNIQUE,
+                pipeline_version text NOT NULL,
+                status text NOT NULL CHECK (status IN ('ready', 'ready_with_warnings', 'no_text')),
+                page_count integer NOT NULL CHECK (page_count > 0),
+                chunk_count integer NOT NULL CHECK (chunk_count >= 0),
+                empty_pages integer[] NOT NULL,
+                published_at timestamptz NOT NULL DEFAULT now()
+            )""",
+            """INSERT INTO document_publications
+                (document_id, id, pipeline_version, status, page_count, chunk_count, empty_pages, published_at)
+                SELECT p.document_id, coalesce(p.attempt_id, gen_random_uuid()), p.pipeline_version,
+                p.status, d.page_count, p.chunk_count, p.empty_pages, coalesce(p.finished_at, p.updated_at)
+                FROM document_preparations p JOIN documents d ON d.id = p.document_id
+                WHERE p.status IN ('ready', 'ready_with_warnings', 'no_text')""",
+        ),
+    ),
+    (
+        4,
+        (
+            "ALTER TABLE document_pages ADD COLUMN blocks jsonb NOT NULL DEFAULT '[]'",
+            "ALTER TABLE document_pages ADD COLUMN warnings jsonb NOT NULL DEFAULT '[]'",
+            "ALTER TABLE document_pages ADD COLUMN page_image_id uuid",
+            """CREATE TABLE document_assets (
+                id uuid PRIMARY KEY,
+                document_id uuid NOT NULL,
+                page_number integer NOT NULL,
+                publication_id uuid NOT NULL,
+                content bytea NOT NULL,
+                FOREIGN KEY (document_id, page_number) REFERENCES document_pages(document_id, page_number) ON DELETE CASCADE
+            )""",
+            "CREATE INDEX document_assets_document_idx ON document_assets(document_id)",
+        ),
+    ),
+    (
+        5,
+        (
+            "ALTER TABLE document_chunks DROP CONSTRAINT document_chunks_check",
+            "ALTER TABLE document_chunks ALTER COLUMN start_offset DROP NOT NULL",
+            "ALTER TABLE document_chunks ALTER COLUMN end_offset DROP NOT NULL",
+            """ALTER TABLE document_chunks ADD CONSTRAINT document_chunks_offsets_check CHECK (
+                (start_offset IS NULL AND end_offset IS NULL) OR
+                (start_offset IS NOT NULL AND end_offset IS NOT NULL AND length(text) = end_offset - start_offset))""",
+            "ALTER TABLE document_chunks ADD COLUMN content_refs uuid[] NOT NULL DEFAULT '{}'",
+        ),
+    ),
 )
 
 

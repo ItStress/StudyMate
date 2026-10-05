@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { deleteDocument, listDocuments, uploadDocument } from './api'
+import { deleteDocument, listDocuments, retryPreparation, uploadDocument } from './api'
 import type { PdfDocument } from './types'
 
 const maxPdfBytes = 25 * 1024 * 1024
@@ -28,6 +28,11 @@ export function usePdfDocuments() {
   const [isUploading, setIsUploading] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const uploading = useRef(false)
+  const [retryingId, setRetryingId] = useState<string | null>(null)
+  // Reject list responses that started before a local upload, retry or deletion.
+  const revision = useRef(0)
+  const hasPending = documents.some(({ preparation }) =>
+    preparation.status === 'queued' || preparation.status === 'processing')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -44,12 +49,37 @@ export function usePdfDocuments() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    if (!hasPending || isLoading) return
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout>
+    async function refresh() {
+      const startedRevision = revision.current
+      try {
+        const updated = await listDocuments(controller.signal)
+        if (!controller.signal.aborted && startedRevision === revision.current) setDocuments(updated)
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : 'Could not refresh preparation status.')
+        }
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(refresh, 2000)
+      }
+    }
+    timer = setTimeout(refresh, 2000)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [hasPending, isLoading])
+
   async function addFiles(fileList: FileList | null) {
     if (uploading.current || isLoading) return
     const files = Array.from(fileList ?? [])
     if (files.length === 0) return
 
     uploading.current = true
+    revision.current += 1
     setIsUploading(true)
     setError('')
     const failures: string[] = []
@@ -62,6 +92,7 @@ export function usePdfDocuments() {
           continue
         }
         const document = await uploadDocument(file)
+        revision.current += 1
         setDocuments((current) => [document, ...current])
         setSelectedId(document.id)
       } catch (cause) {
@@ -77,15 +108,33 @@ export function usePdfDocuments() {
   async function removeDocument(id: string) {
     if (deletingId) return
     setDeletingId(id)
+    revision.current += 1
     setError('')
     try {
       await deleteDocument(id)
+      revision.current += 1
       setDocuments((current) => current.filter((document) => document.id !== id))
       setSelectedId((current) => current === id ? null : current)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not remove PDF.')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  async function retryDocument(id: string) {
+    if (retryingId) return
+    setRetryingId(id)
+    revision.current += 1
+    setError('')
+    try {
+      const updated = await retryPreparation(id)
+      revision.current += 1
+      setDocuments((current) => current.map((document) => document.id === id ? updated : document))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not retry preparation.')
+    } finally {
+      setRetryingId(null)
     }
   }
 
@@ -97,6 +146,8 @@ export function usePdfDocuments() {
     isLoading,
     isUploading,
     deletingId,
+    retryingId,
+    retryDocument,
     addFiles,
     selectDocument: setSelectedId,
     removeDocument,

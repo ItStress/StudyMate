@@ -24,7 +24,7 @@ def sample_pdf(encrypted: bool = False) -> bytes:
     return output.getvalue()
 
 
-class DocumentApiTests(unittest.TestCase):
+class DocumentTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.database_url = os.getenv("TEST_DATABASE_URL")
@@ -54,6 +54,8 @@ class DocumentApiTests(unittest.TestCase):
             self.created_ids.append(response.json()["id"])
         return response
 
+
+class DocumentApiTests(DocumentTestCase):
     def test_health(self) -> None:
         self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
 
