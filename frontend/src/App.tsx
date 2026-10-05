@@ -1,6 +1,7 @@
 import { DocumentPanel } from './features/documents/DocumentPanel'
 import { PdfPreview } from './features/documents/PdfPreview'
 import { usePdfDocuments } from './features/documents/usePdfDocuments'
+import { ChatPanel } from './features/chat/ChatPanel'
 
 export default function App() {
   const {
@@ -25,11 +26,11 @@ export default function App() {
           </span>
           <h1 className="mt-2 text-4xl font-bold tracking-[-0.045em] sm:text-5xl">StudyMate</h1>
           <p className="mt-2.5 text-base text-muted">
-            Add PDFs to your local library and preview them here.
+            Explore your PDFs and ask your local study assistant a question.
           </p>
         </header>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(270px,340px)_minmax(0,1fr)]">
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] xl:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(320px,380px)]">
           <DocumentPanel
             documents={documents}
             selectedId={selectedId}
@@ -42,6 +43,7 @@ export default function App() {
             onRemoveDocument={removeDocument}
           />
           <PdfPreview document={selectedDocument} />
+          <div className="min-w-0 lg:col-start-2 xl:col-start-3"><ChatPanel /></div>
         </div>
       </div>
     </main>
