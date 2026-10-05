@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+import json
 import logging
 import os
 import re
@@ -11,11 +15,39 @@ logger = logging.getLogger(__name__)
 OLLAMA_TIMEOUT_SECONDS = 180.0
 DEFAULT_OLLAMA_CHAT_MODEL = "qwen3:4b"
 MAX_HISTORY_MESSAGES = 20
+STUDY_SYSTEM_PROMPT = (
+    "You are StudyMate, a patient study tutor focused on helping users understand their course material. "
+    "Reply in the language of the user's question. Start with a clear, concise explanation; "
+    "then use short sections, concrete examples, and definitions of unfamiliar terms when useful. "
+    "For exercises, explain the educational steps and why they work. Offer a brief check question "
+    "when appropriate, without adding one to every reply. Adapt to the requested level and ask "
+    "a focused clarification if needed. Acknowledge uncertainty instead of inventing facts. "
+    "Uploaded PDFs are NOT available to you yet: never claim to have read, searched, or quoted them, "
+    "and never invent page references. If asked about an uploaded PDF without supplied text, "
+    "explain this limitation briefly and ask the user to paste the relevant passage. "
+    "You can explain text pasted into the conversation. Provide only the final user-facing answer, "
+    "without internal reasoning or think tags."
+)
 
 
 class HistoryMessage(TypedDict):
     role: Literal["user", "assistant"]
     content: str
+
+
+def build_messages(
+    question: str, history: list[HistoryMessage] | None = None, context: str | None = None
+) -> list[dict[str, str]]:
+    messages = [{"role": "system", "content": STUDY_SYSTEM_PROMPT}]
+    if context is not None:
+        messages[0]["content"] += (
+            " Answer using only the supplied context. If it does not contain the answer, "
+            "say that there is not enough information."
+        )
+        question = f"Context:\n{context}\n\nQuestion:\n{question}"
+    messages.extend((history or [])[-MAX_HISTORY_MESSAGES:])
+    messages.append({"role": "user", "content": question})
+    return messages
 
 
 def answer_without_thinking(content: str) -> str:
@@ -43,17 +75,7 @@ async def generate_answer(
         raise HTTPException(status_code=503, detail="OLLAMA_CHAT_MODEL is not configured")
 
     base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-    messages = [
-        {"role": "system", "content": "You are StudyMate, a helpful study assistant."},
-    ]
-    if context is not None:
-        messages[0]["content"] += (
-            " Answer using only the supplied context. If it does not contain the answer, "
-            "say that there is not enough information."
-        )
-        question = f"Context:\n{context}\n\nQuestion:\n{question}"
-    messages.extend((history or [])[-MAX_HISTORY_MESSAGES:])
-    messages.append({"role": "user", "content": question})
+    messages = build_messages(question, history, context)
 
     try:
         async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT_SECONDS) as client:
@@ -82,3 +104,132 @@ async def generate_answer(
         logger.error("Ollama returned a response without answer text")
         raise HTTPException(status_code=502, detail="The language model returned an invalid response")
     return answer.strip()
+
+
+class StreamingAnswerFilter:
+    """Suppress tagged thinking even when tags span multiple Ollama chunks."""
+
+    def __init__(self) -> None:
+        self.pending = ""
+        self.depth = 0
+        self.started = False
+        self.can_start = True
+        self.closed = False
+        self.raw = ""
+
+    def feed(self, text: str, *, final: bool = False) -> str:
+        self.pending += text
+        if not self.started:
+            self.raw += text
+        output: list[str] = []
+        while self.pending:
+            if self.pending.startswith("<"):
+                end = self.pending.find(">")
+                if end == -1:
+                    if not final:
+                        break
+                    # Never expose an unfinished thinking marker.
+                    if re.match(r"<\s*/?\s*t(?:h(?:i(?:n(?:k)?)?)?)?\s*$", self.pending, re.I):
+                        self.pending = ""
+                        break
+                    end = len(self.pending) - 1
+                part, self.pending = self.pending[:end + 1], self.pending[end + 1:]
+                if re.fullmatch(r"<\s*think\s*>", part, re.I):
+                    self.depth += 1
+                elif re.fullmatch(r"<\s*/\s*think\s*>", part, re.I):
+                    if self.depth:
+                        self.depth -= 1
+                    elif self.started and not self.closed:
+                        raise ValueError("Unmatched thinking marker")
+                    if not self.depth:
+                        # An omitted opening <think> tag is common in legacy output.
+                        # Only its closing tag establishes a new answer boundary.
+                        self.can_start = True
+                elif not self.depth and self.can_start and not self.started and re.fullmatch(r"<answer>", part, re.I):
+                    self.started = True
+                    self.raw = ""
+                elif not self.depth and self.started and re.fullmatch(r"</answer>", part, re.I):
+                    self.closed = True
+                elif not self.depth:
+                    if self.started and not self.closed:
+                        output.append(part)
+                    elif not self.started:
+                        self.can_start = False
+            else:
+                end = self.pending.find("<")
+                if end == -1:
+                    end = len(self.pending)
+                part, self.pending = self.pending[:end], self.pending[end:]
+                if not self.depth:
+                    if self.started and not self.closed:
+                        output.append(part)
+                    elif not self.started and part.strip():
+                        # A marker quoted in a sentence is not an answer boundary.
+                        self.can_start = False
+        if final and not self.started:
+            # Older models may put untagged reasoning before </think>. Buffer until
+            # completion rather than expose it while waiting for the answer marker.
+            return answer_without_thinking(self.raw)
+        return "".join(output)
+
+
+def stream_messages(question: str, history: list[HistoryMessage] | None) -> list[dict[str, str]]:
+    messages = build_messages(question, history)
+    messages[0]["content"] += (
+        " Wrap your entire final answer in <answer> and </answer> tags. "
+        "Put <answer> immediately before your first user-facing word. "
+        "These tags are required for the interface and will not be displayed."
+    )
+    return messages
+
+
+async def stream_answer(
+    question: str, *, history: list[HistoryMessage] | None = None
+) -> AsyncIterator[dict[str, object]]:
+    """NDJSON events; errors after streaming starts travel inside the stream."""
+    model = os.getenv("OLLAMA_CHAT_MODEL", DEFAULT_OLLAMA_CHAT_MODEL).strip()
+    if not model:
+        yield {"type": "error", "status": 503, "detail": "OLLAMA_CHAT_MODEL is not configured"}
+        return
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    answer_filter = StreamingAnswerFilter()
+    has_answer = False
+    try:
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT_SECONDS) as client:
+            async with client.stream("POST", f"{base_url}/api/chat", json={
+                "model": model, "messages": stream_messages(question, history),
+                "stream": True, "think": False,
+            }) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    event = json.loads(line)
+                    if not isinstance(event, dict) or "error" in event:
+                        raise ValueError("Invalid Ollama event")
+                    message = event.get("message")
+                    if not isinstance(message, dict):
+                        raise ValueError("Missing message")
+                    content = message.get("content", "")
+                    if not isinstance(content, str) or not isinstance(event.get("done"), bool):
+                        raise ValueError("Invalid content or completion flag")
+                    # message.thinking is deliberately ignored.
+                    text = answer_filter.feed(content, final=event["done"])
+                    if text:
+                        has_answer = has_answer or bool(text.strip())
+                        yield {"type": "delta", "content": text}
+                    if event["done"]:
+                        if not has_answer:
+                            raise ValueError("Empty answer")
+                        yield {"type": "done"}
+                        return
+                raise ValueError("Stream ended without completion")
+    except httpx.TimeoutException:
+        yield {"type": "error", "status": 504, "detail": "The language model timed out"}
+    except httpx.RequestError:
+        yield {"type": "error", "status": 503, "detail": "The language model is unavailable"}
+    except httpx.HTTPStatusError:
+        yield {"type": "error", "status": 502, "detail": "The language model returned an error"}
+    except (ValueError, TypeError) as error:
+        logger.warning("Invalid Ollama stream: %s", type(error).__name__)
+        yield {"type": "error", "status": 502, "detail": "The language model returned an invalid response"}
