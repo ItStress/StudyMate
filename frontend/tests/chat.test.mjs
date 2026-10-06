@@ -40,16 +40,16 @@ test('client forwards history and decodes UTF-8 and NDJSON across arbitrary boun
   let request
   const client = await api(async (url, options) => {
     request = { url, options }
-    return response([{ type: 'delta', content: 'Gravità 😊\n' }, { type: 'delta', content: 'Second line' }, { type: 'done' }])
+    return response([{ type: 'delta', content: 'Gravità 😊\n' }, { type: 'delta', content: 'Second line' }, { type: 'done', citations: [], grounded: false }])
   })
   const controller = new AbortController()
   const history = [{ role: 'user', content: 'Hello' }]
   const deltas = []
-  const answer = await client.streamQuestion('Explain', history, controller.signal, (delta) => deltas.push(delta))
-  assert.equal(answer, 'Gravità 😊\nSecond line')
+  const answer = await client.streamQuestion('Explain', history, controller.signal, (delta) => deltas.push(delta), ['pdf-1'])
+  assert.equal(answer.answer, 'Gravità 😊\nSecond line')
   assert.deepEqual(deltas, ['Gravità 😊\n', 'Second line'])
   assert.equal(request.url, '/api/chat/stream')
-  assert.deepEqual(JSON.parse(request.options.body), { question: 'Explain', history })
+  assert.deepEqual(JSON.parse(request.options.body), { question: 'Explain', history, document_ids: ['pdf-1'] })
   assert.equal(request.options.signal, controller.signal)
 })
 
@@ -58,27 +58,27 @@ test('client rejects timeout, malformed events, and streams missing completion',
     [{ type: 'error', status: 504, detail: 'The language model timed out' }],
     [{ type: 'delta', content: 'Partial' }],
     [{ type: 'delta', content: 42 }],
-    [{ type: 'done' }],
+    [{ type: 'done', citations: [], grounded: false }],
     [{ type: 'unknown' }],
   ]) {
     const client = await api(async () => response(events))
-    await assert.rejects(client.streamQuestion('Explain', [], new AbortController().signal, () => {}))
+    await assert.rejects(client.streamQuestion('Explain', [], new AbortController().signal, () => {}, ['pdf-1']))
   }
   const client = await api(async () => new Response('not JSON'))
-  await assert.rejects(client.streamQuestion('Explain', [], new AbortController().signal, () => {}))
+  await assert.rejects(client.streamQuestion('Explain', [], new AbortController().signal, () => {}, ['pdf-1']))
 })
 
 test('client reports HTTP and network errors and propagates abort', async () => {
   const http = await api(async () => new Response(JSON.stringify({ detail: 'Invalid question' }), { status: 422 }))
-  await assert.rejects(http.streamQuestion('Explain', [], new AbortController().signal, () => {}), /Invalid question/)
+  await assert.rejects(http.streamQuestion('Explain', [], new AbortController().signal, () => {}, ['pdf-1']), /Invalid question/)
   const network = await api(async () => { throw new Error('Network unavailable') })
-  await assert.rejects(network.streamQuestion('Explain', [], new AbortController().signal, () => {}), /Network unavailable/)
+  await assert.rejects(network.streamQuestion('Explain', [], new AbortController().signal, () => {}, ['pdf-1']), /Network unavailable/)
   const aborted = await api(async (_, { signal }) => {
     signal.throwIfAborted()
   })
   const controller = new AbortController()
   controller.abort()
-  await assert.rejects(aborted.streamQuestion('Explain', [], controller.signal, () => {}), { name: 'AbortError' })
+  await assert.rejects(aborted.streamQuestion('Explain', [], controller.signal, () => {}, ['pdf-1']), { name: 'AbortError' })
 })
 
 async function hookHarness() {
@@ -108,8 +108,8 @@ async function hookHarness() {
     },
   }
   const client = {
-    streamQuestion(question, history, signal, onDelta) {
-      return new Promise((resolve, reject) => requests.push({ question, history, signal, onDelta, resolve, reject }))
+    streamQuestion(question, history, signal, onDelta, documentIds) {
+      return new Promise((resolve, reject) => requests.push({ question, history, signal, onDelta, documentIds, resolve: (answer) => resolve({ answer, citations: [], grounded: false }), reject }))
     },
   }
   const module = await loadModule('useChat.ts', { AbortController, crypto: globalThis.crypto, Error }, {
@@ -117,7 +117,7 @@ async function hookHarness() {
   })
   return {
     requests,
-    render() { cursor = 0; return module.useChat() },
+    render(documentIds = ['pdf-1'], canSend = true) { cursor = 0; return module.useChat(documentIds, canSend) },
     unmount() { for (const cleanup of cleanups) cleanup?.() },
   }
 }
@@ -207,4 +207,35 @@ test('New chat and unmount abort pending requests and ignore late answers', asyn
     assert.equal(harness.render().messages.length, 0)
     if (action === 'newChat') assert.equal(harness.render().attempt, null)
   }
+})
+
+test('client confirms server citations and rejects unknown or duplicate labels', async () => {
+  const citation = { number: 1, document_id: 'pdf-1', filename: 'biology.pdf', page_number: 2,
+    publication_id: 'publication-1', chunk_id: 'chunk-1', excerpt: 'Plants use sunlight.' }
+  const client = await api(async () => response([{ type: 'delta', content: 'Plants use sunlight [1].' },
+    { type: 'done', grounded: true, citations: [citation] }]))
+  const result = await client.streamQuestion('Explain', [], new AbortController().signal, () => {}, ['pdf-1'])
+  assert.equal(result.citations[0].page_number, 2)
+  assert.equal(result.grounded, true)
+  for (const citations of [[], [citation, citation], [{ ...citation, number: 2 }], [{ ...citation, page_number: 0 }]]) {
+    const invalid = await api(async () => response([{ type: 'delta', content: 'Answer [1]' },
+      { type: 'done', grounded: true, citations }]))
+    await assert.rejects(invalid.streamQuestion('Explain', [], new AbortController().signal, () => {}, ['pdf-1']))
+  }
+})
+
+test('hook blocks unavailable sources and Retry retains the source snapshot', async () => {
+  const harness = await hookHarness()
+  harness.render().setDraft('Question')
+  await harness.render([], false).sendMessage()
+  await harness.render(['pdf-1'], false).sendMessage()
+  assert.equal(harness.requests.length, 0)
+  const pending = harness.render(['pdf-1', 'pdf-2']).sendMessage()
+  harness.render().stop()
+  harness.render(['pdf-3']).retry()
+  assert.deepEqual(Array.from(harness.requests[1].documentIds), ['pdf-1', 'pdf-2'])
+  harness.requests[0].resolve('Late')
+  await pending
+  harness.requests[1].resolve('Completed')
+  await new Promise((resolve) => setImmediate(resolve))
 })

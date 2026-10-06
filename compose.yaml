@@ -6,7 +6,8 @@ x-backend: &backend
     DATABASE_URL: postgresql://studymate@postgres:5432/studymate
     PGPASSWORD: ${POSTGRES_PASSWORD:-studymate-local}
     OLLAMA_BASE_URL: http://ollama:11434
-    OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b}
+    OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b-instruct}
+    OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-embeddinggemma:300m}
 
 services:
   ollama:
@@ -14,6 +15,8 @@ services:
     restart: unless-stopped
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MAX_LOADED_MODELS: 2
+      OLLAMA_NUM_PARALLEL: 1
     ports:
       - '127.0.0.1:${STUDYMATE_OLLAMA_PORT:-11434}:11434'
     volumes:
@@ -26,19 +29,14 @@ services:
       start_period: 10s
 
   model-init:
-    image: ollama/ollama:latest
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b}
-    entrypoint: ['/bin/sh', '-ec']
-    command:
-      - 'ollama show "$$OLLAMA_CHAT_MODEL" >/dev/null 2>&1 || ollama pull "$$OLLAMA_CHAT_MODEL"'
+    <<: *backend
+    command: ['python', '-m', 'studymate.model_init']
     depends_on:
       ollama:
         condition: service_healthy
 
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
     restart: unless-stopped
     environment:
       POSTGRES_DB: studymate

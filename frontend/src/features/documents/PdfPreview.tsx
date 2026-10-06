@@ -1,12 +1,13 @@
 import { documentContentUrl } from './types'
 import type { PdfDocument } from './types'
-import { PreparationInspector } from './PreparationInspector'
 
 type PdfPreviewProps = {
   document: PdfDocument | undefined
+  page: number
+  navigation: number
 }
 
-export function PdfPreview({ document }: PdfPreviewProps) {
+export function PdfPreview({ document, page, navigation }: PdfPreviewProps) {
   return (
     <section
       className="min-w-0 overflow-hidden rounded-[18px] border border-stroke bg-white shadow-panel"
@@ -21,7 +22,7 @@ export function PdfPreview({ document }: PdfPreviewProps) {
         </div>
         {document && (
           <a
-            href={documentContentUrl(document.id)}
+            href={`${documentContentUrl(document.id)}#page=${page}`}
             target="_blank"
             rel="noopener noreferrer"
             className="shrink-0 text-[13px] font-bold text-accent hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-focus"
@@ -31,7 +32,8 @@ export function PdfPreview({ document }: PdfPreviewProps) {
         )}
       </div>
       {document ? (
-        <PreparationInspector key={document.id} document={document} />
+        <iframe key={`${document.id}:${navigation}`} className="block h-[min(72vh,900px)] min-h-[420px] w-full border-0"
+          src={`${documentContentUrl(document.id)}#page=${page}`} title={`Preview of ${document.filename}`} />
       ) : (
         <div className="grid h-[min(72vh,900px)] min-h-[420px] place-items-center p-6 text-center text-sm text-subtle">
           Your selected PDF will appear here.

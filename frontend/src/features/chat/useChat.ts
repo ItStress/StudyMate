@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { streamQuestion } from './api'
 import type { ChatMessage } from './types'
 
-type Attempt = { question: string; answer: string; status: 'generating' | 'stopped' | 'failed' }
+type Attempt = { question: string; answer: string; documentIds: string[]; status: 'generating' | 'stopped' | 'failed' }
 
-export function useChat() {
+export function useChat(documentIds: string[], canSend: boolean) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [attempt, setAttempt] = useState<Attempt | null>(null)
@@ -18,23 +18,24 @@ export function useChat() {
 
   async function sendMessage(questionToRetry?: string) {
     const question = (questionToRetry ?? draft).trim()
-    if (!question || activeRequest.current) return
+    if (!question || activeRequest.current || !canSend || documentIds.length === 0) return
     const controller = new AbortController()
     activeRequest.current = controller
-    setAttempt({ question, answer: '', status: 'generating' })
+    const sources = questionToRetry && attempt ? attempt.documentIds : [...documentIds]
+    setAttempt({ question, answer: '', documentIds: sources, status: 'generating' })
     setDraft('')
     setError('')
 
     try {
       const history = messages.slice(-20).map(({ role, content }) => ({ role, content }))
-      const answer = await streamQuestion(question, history, controller.signal, (content) => {
+      const response = await streamQuestion(question, history, controller.signal, (content) => {
         if (activeRequest.current !== controller) return
         setAttempt((current) => current ? { ...current, answer: current.answer + content } : current)
-      })
+      }, sources)
       if (activeRequest.current !== controller) return
       setMessages((current) => [...current,
         { id: crypto.randomUUID(), role: 'user', content: question },
-        { id: crypto.randomUUID(), role: 'assistant', content: answer },
+        { id: crypto.randomUUID(), role: 'assistant', content: response.answer, citations: response.citations, grounded: response.grounded },
       ])
       setAttempt(null)
     } catch (cause: unknown) {

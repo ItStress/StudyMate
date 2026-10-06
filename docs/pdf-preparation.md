@@ -2,6 +2,8 @@
 
 Status: implemented through the six approved local tickets. The issue-ready specification and completed tickets record the final scope and verification.
 
+The preparation pipeline and diagnostic APIs remain in use. The RAG implementation removes the frontend inspector and reprocessing controls, keeps the complete original PDF preview, and adds separate local embedding/indexing. The inspector section below describes the earlier UI. See the root README for current behavior.
+
 ## Purpose and scope
 
 Prepare English PDFs with selectable text for later question answering, explanations, and summaries with document and physical-page citations. This change improves extraction and provides an in-app inspector. It does not implement embeddings, retrieval, or chat.

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { deleteDocument, listDocuments, retryPreparation, uploadDocument } from './api'
+import { deleteDocument, listDocuments, uploadDocument } from './api'
 import type { PdfDocument } from './types'
 
 const maxPdfBytes = 25 * 1024 * 1024
@@ -28,11 +28,8 @@ export function usePdfDocuments() {
   const [isUploading, setIsUploading] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const uploading = useRef(false)
-  const [retryingId, setRetryingId] = useState<string | null>(null)
-  // Reject list responses that started before a local upload, retry or deletion.
+  // Reject list responses that started before a local upload or deletion.
   const revision = useRef(0)
-  const hasPending = documents.some(({ preparation }) =>
-    preparation.status === 'queued' || preparation.status === 'processing')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -50,7 +47,7 @@ export function usePdfDocuments() {
   }, [])
 
   useEffect(() => {
-    if (!hasPending || isLoading) return
+    if (isLoading) return
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout>
     async function refresh() {
@@ -60,10 +57,10 @@ export function usePdfDocuments() {
         if (!controller.signal.aborted && startedRevision === revision.current) setDocuments(updated)
       } catch (cause) {
         if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : 'Could not refresh preparation status.')
+          setError(cause instanceof Error ? cause.message : 'Could not refresh PDF availability.')
         }
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(refresh, 2000)
+        if (!controller.signal.aborted) timer = setTimeout(refresh, 3000)
       }
     }
     timer = setTimeout(refresh, 2000)
@@ -71,7 +68,7 @@ export function usePdfDocuments() {
       clearTimeout(timer)
       controller.abort()
     }
-  }, [hasPending, isLoading])
+  }, [isLoading])
 
   async function addFiles(fileList: FileList | null) {
     if (uploading.current || isLoading) return
@@ -122,22 +119,6 @@ export function usePdfDocuments() {
     }
   }
 
-  async function retryDocument(id: string) {
-    if (retryingId) return
-    setRetryingId(id)
-    revision.current += 1
-    setError('')
-    try {
-      const updated = await retryPreparation(id)
-      revision.current += 1
-      setDocuments((current) => current.map((document) => document.id === id ? updated : document))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not retry preparation.')
-    } finally {
-      setRetryingId(null)
-    }
-  }
-
   return {
     documents,
     selectedId,
@@ -146,8 +127,6 @@ export function usePdfDocuments() {
     isLoading,
     isUploading,
     deletingId,
-    retryingId,
-    retryDocument,
     addFiles,
     selectDocument: setSelectedId,
     removeDocument,

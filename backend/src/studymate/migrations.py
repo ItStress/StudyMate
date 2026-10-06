@@ -123,6 +123,39 @@ MIGRATIONS = (
             "ALTER TABLE document_chunks ADD COLUMN content_refs uuid[] NOT NULL DEFAULT '{}'",
         ),
     ),
+    (
+        6,
+        (
+            "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public",
+            """CREATE TABLE document_indexes (
+                id uuid PRIMARY KEY,
+                document_id uuid NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+                publication_id uuid NOT NULL,
+                model text,
+                digest text,
+                index_version text,
+                status text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'processing', 'ready', 'failed')),
+                attempt_id uuid,
+                attempts integer NOT NULL DEFAULT 0,
+                retry_at timestamptz NOT NULL DEFAULT now(),
+                error text
+            )""",
+            """CREATE TABLE retrieval_units (
+                id uuid PRIMARY KEY,
+                index_id uuid NOT NULL REFERENCES document_indexes(id) ON DELETE CASCADE,
+                chunk_id uuid NOT NULL REFERENCES document_chunks(id) ON DELETE CASCADE,
+                page_number integer NOT NULL CHECK (page_number > 0),
+                text text NOT NULL CHECK (length(text) > 0),
+                content_refs uuid[] NOT NULL,
+                embedding public.vector(768) NOT NULL,
+                search_text tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED
+            )""",
+            "CREATE INDEX retrieval_units_index_idx ON retrieval_units(index_id)",
+            "CREATE INDEX retrieval_units_search_idx ON retrieval_units USING gin(search_text)",
+            """INSERT INTO document_indexes (id, document_id, publication_id)
+                SELECT gen_random_uuid(), document_id, id FROM document_publications WHERE chunk_count > 0""",
+        ),
+    ),
 )
 
 

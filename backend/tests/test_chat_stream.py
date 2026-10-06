@@ -33,19 +33,29 @@ def chunk(content='', done=False, **message):
     return {'message': {'content': content, **message}, 'done': done}
 
 
+async def prepared_context(question, history, document_ids):
+    return None, history[-20:], []
+
+
 class ChatStreamTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
         self.environment = patch.dict(os.environ, {'OLLAMA_CHAT_MODEL': 'test-model'})
         self.environment.start()
+        self.preparation = patch('studymate.chat.prepare_context', side_effect=prepared_context)
+        self.validation = patch('studymate.chat.validate_answer', side_effect=lambda answer, _: (answer, [], False))
+        self.preparation.start()
+        self.validation.start()
 
     def tearDown(self):
         self.environment.stop()
+        self.preparation.stop()
+        self.validation.stop()
 
     def request(self, transport, **payload):
         client = httpx.AsyncClient(transport=transport)
         with patch('studymate.llm.httpx.AsyncClient', return_value=client):
-            response = self.client.post('/api/chat/stream', json={'question': 'Explain gravity', **payload})
+            response = self.client.post('/api/chat/stream', json={'document_ids': ['00000000-0000-0000-0000-000000000001'], 'question': 'Explain gravity', **payload})
         return response, [json.loads(line) for line in response.text.splitlines()]
 
     def test_streams_answer_in_order_and_forwards_history(self):
@@ -58,7 +68,7 @@ class ChatStreamTests(unittest.TestCase):
             self.assertFalse(payload['think'])
             self.assertEqual(payload['messages'][1:-1], history[-20:])
             self.assertEqual(payload['messages'][-1]['content'], 'Explain gravity')
-            self.assertIn('Uploaded PDFs are NOT available', payload['messages'][0]['content'])
+            self.assertIn('Answer only from the supplied PDF evidence', payload['messages'][0]['content'])
             return httpx.Response(200, stream=stream)
 
         response, events = self.request(httpx.MockTransport(respond), history=history)
@@ -66,7 +76,7 @@ class ChatStreamTests(unittest.TestCase):
         self.assertIn('application/x-ndjson', response.headers['content-type'])
         self.assertEqual(events, [
             {'type': 'delta', 'content': 'Gravità '},
-            {'type': 'delta', 'content': 'attracts mass.'}, {'type': 'done'},
+            {'type': 'delta', 'content': 'attracts mass.'}, {'type': 'done', 'citations': [], 'grounded': False},
         ])
         self.assertTrue(stream.closed)
 
@@ -75,7 +85,7 @@ class ChatStreamTests(unittest.TestCase):
         stream = ChunkStream([chunk(part, i == len(parts) - 1, thinking='private') for i, part in enumerate(parts)])
         _, events = self.request(httpx.MockTransport(lambda _: httpx.Response(200, stream=stream)))
         self.assertEqual(''.join(event.get('content', '') for event in events), 'Ciao 😊')
-        self.assertEqual(events[-1], {'type': 'done'})
+        self.assertEqual(events[-1], {'type': 'done', 'citations': [], 'grounded': False})
 
     def test_buffers_legacy_implicit_thinking_until_final_answer(self):
         answer_filter = StreamingAnswerFilter()
@@ -86,7 +96,7 @@ class ChatStreamTests(unittest.TestCase):
     def test_fallback_for_model_without_answer_marker(self):
         stream = ChunkStream([chunk('Plain '), chunk('answer', True)])
         _, events = self.request(httpx.MockTransport(lambda _: httpx.Response(200, stream=stream)))
-        self.assertEqual(events, [{'type': 'delta', 'content': 'Plain answer'}, {'type': 'done'}])
+        self.assertEqual(events, [{'type': 'delta', 'content': 'Plain answer'}, {'type': 'done', 'citations': [], 'grounded': False}])
 
     def test_does_not_expose_implicit_reasoning_before_answer_marker(self):
         answer_filter = StreamingAnswerFilter()
@@ -105,7 +115,7 @@ class ChatStreamTests(unittest.TestCase):
         self.assertEqual(events, [
             {'type': 'delta', 'content': 'World War II '},
             {'type': 'delta', 'content': 'lasted from 1939 to 1945.'},
-            {'type': 'done'},
+            {'type': 'done', 'citations': [], 'grounded': False},
         ])
 
     def test_quoted_markers_in_implicit_thinking_without_final_marker_use_fallback(self):
@@ -151,7 +161,7 @@ class ChatStreamTests(unittest.TestCase):
                 _, result = self.request(httpx.MockTransport(lambda _: httpx.Response(200, stream=stream)))
                 self.assertEqual(result[-1]['type'], 'error')
                 self.assertEqual(result[-1]['status'], 502)
-                self.assertNotIn({'type': 'done'}, result)
+                self.assertNotIn({'type': 'done', 'citations': [], 'grounded': False}, result)
 
     def test_upstream_http_error(self):
         _, events = self.request(httpx.MockTransport(lambda _: httpx.Response(404, text='secret')))
@@ -163,13 +173,13 @@ class ChatStreamTests(unittest.TestCase):
 
     def test_missing_model_configuration(self):
         with patch.dict(os.environ, {'OLLAMA_CHAT_MODEL': ''}):
-            response = self.client.post('/api/chat/stream', json={'question': 'Hello'})
+            response = self.client.post('/api/chat/stream', json={'document_ids': ['00000000-0000-0000-0000-000000000001'], 'question': 'Hello'})
         self.assertEqual(json.loads(response.text)['status'], 503)
 
     def test_study_prompt_is_honest_about_pdf_access(self):
         self.assertIn("language of the user's question", STUDY_SYSTEM_PROMPT)
-        self.assertIn('paste the relevant passage', STUDY_SYSTEM_PROMPT)
-        self.assertIn('never invent page references', STUDY_SYSTEM_PROMPT)
+        self.assertIn('Conversation history is not evidence', STUDY_SYSTEM_PROMPT)
+        self.assertIn('Never invent citations', STUDY_SYSTEM_PROMPT)
         self.assertEqual(self.client.get('/health').json(), {'status': 'ok'})
 
 

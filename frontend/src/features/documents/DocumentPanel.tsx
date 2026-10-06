@@ -9,8 +9,8 @@ type DocumentPanelProps = {
   isLoading: boolean
   isUploading: boolean
   deletingId: string | null
-  retryingId: string | null
-  onRetryDocument: (id: string) => void
+  sourceIds: string[]
+  onToggleSource: (id: string) => void
   onFilesSelected: (files: FileList | null) => void
   onSelectDocument: (id: string) => void
   onRemoveDocument: (id: string) => void
@@ -23,8 +23,8 @@ export function DocumentPanel({
   isLoading,
   isUploading,
   deletingId,
-  retryingId,
-  onRetryDocument,
+  sourceIds,
+  onToggleSource,
   onFilesSelected,
   onSelectDocument,
   onRemoveDocument,
@@ -84,6 +84,9 @@ export function DocumentPanel({
         <ul className="max-h-[260px] list-none overflow-auto p-2.5 lg:max-h-[65vh]">
           {documents.map((document) => (
             <li key={document.id} className="flex min-w-0 items-center gap-1">
+              <input type="checkbox" checked={sourceIds.includes(document.id)}
+                onChange={() => onToggleSource(document.id)} aria-label={`Use ${document.filename} in chat`}
+                className="ml-2 size-4 shrink-0 cursor-pointer accent-accent focus-visible:outline-2 focus-visible:outline-focus" />
               <button
                 type="button"
                 className={`flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-[10px] p-3 text-left hover:bg-accent-selected focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus ${document.id === selectedId ? 'bg-accent-selected' : ''}`}
@@ -99,37 +102,10 @@ export function DocumentPanel({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{document.filename}</span>
                   <span className="mt-1 block text-xs text-subtle">
-                    {document.preparation.status === 'queued' && 'Queued for preparation'}
-                    {document.preparation.status === 'processing' &&
-                      `${document.preparation.phase === 'chunking' ? 'Creating passages' : 'Extracting text'} · ${document.preparation.pages_processed} / ${document.page_count} pages`}
-                    {['ready', 'ready_with_warnings'].includes(document.preparation.status) &&
-                      `Prepared · ${document.preparation.chunk_count} ${document.preparation.chunk_count === 1 ? 'passage' : 'passages'}`}
-                    {document.preparation.status === 'failed' && 'Preparation failed'}
-                    {document.preparation.status === 'no_text' && 'No extractable text'}
+                    {document.page_count} {document.page_count === 1 ? 'page' : 'pages'} · {(document.size_bytes / 1024 / 1024).toFixed(1)} MiB
                   </span>
-                  {document.preparation.status === 'ready_with_warnings' && (
-                    <span className="mt-1 block text-xs text-subtle">
-                      {document.preparation.empty_pages.length > 0
-                        ? `No text on pages ${document.preparation.empty_pages.join(', ')}.`
-                        : 'Review extraction warnings in the inspector.'}
-                    </span>
-                  )}
-                  {document.preparation.error && (
-                    <span className="mt-1 block text-xs text-danger">{document.preparation.error}</span>
-                  )}
                 </span>
               </button>
-              {!['queued', 'processing'].includes(document.preparation.status) && (
-                <button
-                  type="button"
-                  onClick={() => onRetryDocument(document.id)}
-                  disabled={retryingId !== null || deletingId === document.id}
-                  className="cursor-pointer rounded-lg px-2 py-2 text-xs font-semibold text-accent hover:bg-accent-soft focus-visible:outline-3 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label={`Reprocess ${document.filename}`}
-                >
-                  {retryingId === document.id ? 'Queuing...' : document.preparation.status === 'failed' ? 'Retry' : 'Reprocess'}
-                </button>
-              )}
               <button
                 type="button"
                 className="grid size-10 shrink-0 cursor-pointer place-items-center rounded-[10px] text-subtle hover:bg-red-50 hover:text-danger focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50"

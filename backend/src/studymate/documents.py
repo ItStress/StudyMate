@@ -26,13 +26,22 @@ class DocumentMetadata(BaseModel):
     created_at: datetime
     preparation: PreparationMetadata
     published: PublishedMetadata | None
+    availability: str = "waiting"
 
 
 METADATA_SELECT = """SELECT d.id, d.filename, d.size_bytes, d.page_count, d.sha256, d.created_at,
     to_jsonb(p) - 'document_id' AS preparation,
-    to_jsonb(pub) - 'document_id' AS published FROM documents d
+    to_jsonb(pub) - 'document_id' AS published,
+    CASE WHEN pub.chunk_count = 0 THEN 'no_text'
+        WHEN pub.id IS NULL AND p.status = 'failed' THEN 'failed'
+        WHEN i.status = 'failed' AND i.publication_id = pub.id THEN 'failed'
+        WHEN i.status = 'ready' AND i.publication_id = pub.id
+            AND i.model = current_setting('studymate.embedding_model', true)
+            AND i.index_version = current_setting('studymate.index_version', true) THEN 'ready'
+        ELSE 'waiting' END AS availability FROM documents d
     JOIN document_preparations p ON p.document_id = d.id
-    LEFT JOIN document_publications pub ON pub.document_id = d.id"""
+    LEFT JOIN document_publications pub ON pub.document_id = d.id
+    LEFT JOIN document_indexes i ON i.document_id = d.id"""
 
 
 class PreparedPage(BaseModel):

@@ -1,0 +1,5 @@
+# Optional NVIDIA acceleration. Keep compose.yaml usable on CPU-only machines.
+# docker compose -f compose.yaml -f compose.gpu.yaml up -d --build --wait
+services:
+  ollama:
+    gpus: all

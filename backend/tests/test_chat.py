@@ -9,6 +9,10 @@ from fastapi.testclient import TestClient
 from studymate.main import app
 
 
+async def prepared_context(question, history, document_ids):
+    return None, history[-20:], []
+
+
 class ChatApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
@@ -17,14 +21,20 @@ class ChatApiTests(unittest.TestCase):
             {"OLLAMA_CHAT_MODEL": "test-model", "OLLAMA_BASE_URL": "http://ollama.test/"},
         )
         self.environment.start()
+        self.preparation = patch("studymate.chat.prepare_context", side_effect=prepared_context)
+        self.validation = patch("studymate.chat.validate_answer", side_effect=lambda answer, _: (answer, [], False))
+        self.preparation.start()
+        self.validation.start()
 
     def tearDown(self) -> None:
         self.environment.stop()
+        self.preparation.stop()
+        self.validation.stop()
 
     def request_with_transport(self, handler: httpx.MockTransport, history: list[dict] | None = None) -> httpx.Response:
         ollama_client = httpx.AsyncClient(transport=handler)
         with patch("studymate.llm.httpx.AsyncClient", return_value=ollama_client):
-            payload = {"question": "  Explain gravity  "}
+            payload = {"document_ids": ["00000000-0000-0000-0000-000000000001"], "question": "  Explain gravity  "}
             if history is not None:
                 payload["history"] = history
             return self.client.post("/api/chat", json=payload)
@@ -77,10 +87,10 @@ class ChatApiTests(unittest.TestCase):
 
         response = self.request_with_transport(httpx.MockTransport(respond))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"answer": "Gravity attracts mass."})
+        self.assertEqual(response.json(), {"answer": "Gravity attracts mass.", "citations": [], "grounded": False})
 
     def test_rejects_blank_question(self) -> None:
-        response = self.client.post("/api/chat", json={"question": "  \n "})
+        response = self.client.post("/api/chat", json={"document_ids": ["00000000-0000-0000-0000-000000000001"], "question": "  \n "})
         self.assertEqual(response.status_code, 422)
 
     def test_returns_only_final_answer_when_thinking_is_in_content(self) -> None:
@@ -100,7 +110,7 @@ class ChatApiTests(unittest.TestCase):
                     })
                 ))
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json(), {"answer": expected})
+                self.assertEqual(response.json(), {"answer": expected, "citations": [], "grounded": False})
 
     def test_rejects_response_with_only_thinking(self) -> None:
         for content in ("<think>Internal analysis</think>", "<think>Incomplete analysis", "Analysis</think>"):
@@ -113,7 +123,7 @@ class ChatApiTests(unittest.TestCase):
 
     def test_uses_default_model_when_environment_variable_is_absent(self) -> None:
         def respond(request: httpx.Request) -> httpx.Response:
-            self.assertEqual(json.loads(request.content)["model"], "qwen3:4b")
+            self.assertEqual(json.loads(request.content)["model"], "qwen3:4b-instruct")
             return httpx.Response(200, json={"message": {"content": "Hello"}})
 
         with patch.dict(os.environ, {"OLLAMA_BASE_URL": "http://ollama.test"}, clear=True):
@@ -122,7 +132,7 @@ class ChatApiTests(unittest.TestCase):
 
     def test_reports_missing_model_configuration(self) -> None:
         with patch.dict(os.environ, {"OLLAMA_CHAT_MODEL": ""}):
-            response = self.client.post("/api/chat", json={"question": "Hello"})
+            response = self.client.post("/api/chat", json={"document_ids": ["00000000-0000-0000-0000-000000000001"], "question": "Hello"})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "OLLAMA_CHAT_MODEL is not configured")
 

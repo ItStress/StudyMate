@@ -1,6 +1,7 @@
 """Single local worker; its dedicated session owns the singleton advisory lock."""
 
 import logging
+import asyncio
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +15,9 @@ from studymate.database import database_url
 from studymate.content import ContentBlock, TableBlock
 from studymate.extraction import ExtractedPage, extract_pages
 from studymate.preparation import CHUNK_OVERLAP, CHUNK_SIZE, PIPELINE_VERSION, normalize_text, split_chunks
+from studymate.embeddings import model_identity
+from studymate.indexing import process_index_next, recover_indexes, sync_jobs
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 WORKER_LOCK = 73519041
@@ -126,6 +130,10 @@ def prepare_job(conn: psycopg.Connection, document_id: UUID, content: bytes, att
             page_count = EXCLUDED.page_count, chunk_count = EXCLUDED.chunk_count,
             empty_pages = EXCLUDED.empty_pages, published_at = now()""",
             (document_id, attempt, PIPELINE_VERSION, status, len(pages), len(chunks), empty_pages))
+        conn.execute("DELETE FROM document_indexes WHERE document_id = %s", (document_id,))
+        if chunks:
+            conn.execute("""INSERT INTO document_indexes (id, document_id, publication_id)
+                VALUES (%s, %s, %s)""", (uuid4(), document_id, attempt))
         for asset_id, page_number, path in assets:
             conn.execute("""INSERT INTO document_assets (id, document_id, page_number, publication_id, content)
                 VALUES (%s, %s, %s, %s, %s)""", (asset_id, document_id, page_number, attempt, path.read_bytes()))
@@ -193,9 +201,18 @@ def main() -> None:
             if not acquire_lock(conn):
                 raise SystemExit("Another preparation worker is already running")
             recover_interrupted(conn)
+            recover_indexes(conn)
             logger.info("Preparation worker started")
             while True:
-                if not process_next(conn):
+                prepared = process_next(conn)
+                indexed = False
+                try:
+                    identity = asyncio.run(model_identity())
+                    sync_jobs(conn, identity)
+                    indexed = asyncio.run(process_index_next(conn, identity))
+                except HTTPException as error:
+                    logger.warning("Indexing unavailable: %s", error.detail)
+                if not prepared and not indexed:
                     time.sleep(2)
     except KeyboardInterrupt:
         logger.info("Preparation worker stopped")

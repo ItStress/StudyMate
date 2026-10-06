@@ -2,6 +2,8 @@ import { DocumentPanel } from './features/documents/DocumentPanel'
 import { PdfPreview } from './features/documents/PdfPreview'
 import { usePdfDocuments } from './features/documents/usePdfDocuments'
 import { ChatPanel } from './features/chat/ChatPanel'
+import { useState } from 'react'
+import type { Citation } from './features/chat/types'
 
 export default function App() {
   const {
@@ -12,12 +14,22 @@ export default function App() {
     isLoading,
     isUploading,
     deletingId,
-    retryingId,
-    retryDocument,
     addFiles,
     selectDocument,
     removeDocument,
   } = usePdfDocuments()
+  const [sourceIds, setSourceIds] = useState<string[]>([])
+  const [preview, setPreview] = useState({ id: '', page: 1, navigation: 0 })
+  const sources = documents.filter((doc) => sourceIds.includes(doc.id)).sort((a, b) => a.id.localeCompare(b.id))
+
+  function openDocument(id: string, page = 1) {
+    selectDocument(id)
+    setPreview((current) => ({ id, page, navigation: current.navigation + 1 }))
+  }
+
+  function openCitation(citation: Citation) {
+    openDocument(citation.document_id, citation.page_number)
+  }
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
@@ -40,14 +52,16 @@ export default function App() {
             isLoading={isLoading}
             isUploading={isUploading}
             deletingId={deletingId}
-            retryingId={retryingId}
-            onRetryDocument={retryDocument}
+            sourceIds={sources.map((doc) => doc.id)}
+            onToggleSource={(id) => setSourceIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
             onFilesSelected={addFiles}
-            onSelectDocument={selectDocument}
+            onSelectDocument={openDocument}
             onRemoveDocument={removeDocument}
           />
-          <PdfPreview document={selectedDocument} />
-          <div className="min-w-0 lg:col-start-2 xl:col-start-3"><ChatPanel /></div>
+          <PdfPreview document={selectedDocument} page={preview.id === selectedId ? preview.page : 1} navigation={preview.navigation} />
+          <div className="min-w-0 lg:col-start-2 xl:col-start-3">
+            <ChatPanel key={sources.map((doc) => doc.id).join(',')} sources={sources} documents={documents} onCitation={openCitation} />
+          </div>
         </div>
       </div>
     </main>

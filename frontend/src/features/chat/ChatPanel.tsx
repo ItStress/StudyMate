@@ -2,9 +2,19 @@ import { useEffect, useRef } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { ChatMessageBubble } from './ChatMessageBubble'
 import { useChat } from './useChat'
+import type { Citation } from './types'
+import type { PdfDocument } from '../documents/types'
 
-export function ChatPanel() {
-  const { messages, draft, setDraft, attempt, error, sendMessage, stop, retry, newChat } = useChat()
+type ChatPanelProps = {
+  sources: PdfDocument[]
+  documents: PdfDocument[]
+  onCitation: (citation: Citation) => void
+}
+
+export function ChatPanel({ sources, documents, onCitation }: ChatPanelProps) {
+  const canSend = sources.length > 0 && sources.every((document) => document.availability === 'ready')
+  const { messages, draft, setDraft, attempt, error, sendMessage, stop, retry, newChat } = useChat(sources.map((doc) => doc.id), canSend)
+  const availableIds = documents.map((doc) => doc.id)
   const transcript = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const followResponse = useRef(true)
@@ -46,7 +56,11 @@ export function ChatPanel() {
         </button>
       </div>
       <p className="border-b border-divider px-5 py-3 text-xs leading-relaxed text-muted">
-        Uploaded PDFs are not readable by the assistant yet. Paste a passage or ask a study question.
+        {sources.length === 0 ? 'Select PDFs using the checkboxes to ask a question.' :
+          canSend ? `Answers use ${sources.length} selected ${sources.length === 1 ? 'PDF' : 'PDFs'} and include citations.` :
+          sources.filter((doc) => doc.availability !== 'ready').map((doc) =>
+            `${doc.filename}: ${doc.availability === 'no_text' ? 'No usable text. Scanned PDFs require OCR.' :
+              doc.availability === 'failed' ? 'Could not make this PDF available.' : 'Not available yet. Please wait.'}`).join(' ')}
       </p>
       <div ref={transcript} onScroll={(event) => {
         const container = event.currentTarget
@@ -58,7 +72,8 @@ export function ChatPanel() {
             <p className="mt-2 text-sm text-subtle">Ask a question to start a conversation.</p>
           </div>
         )}
-        {messages.map((message) => <ChatMessageBubble key={message.id} role={message.role} content={message.content} />)}
+        {messages.map((message) => <ChatMessageBubble key={message.id} role={message.role} content={message.content}
+          citations={message.citations} availableIds={availableIds} onCitation={onCitation} />)}
         {attempt && <ChatMessageBubble role="user" content={attempt.question} />}
         {attempt?.answer && <ChatMessageBubble role="assistant" content={attempt.answer} />}
         {attempt && attempt.status !== 'generating' && (
@@ -72,6 +87,7 @@ export function ChatPanel() {
       {attempt && (
         <div className="flex gap-2 px-5 pb-3">
           <button type="button" onClick={() => { if (isPending) stop(); else { followResponse.current = true; retry() } }}
+            disabled={!isPending && !canSend}
             className="cursor-pointer rounded-lg border border-stroke px-3 py-2 text-xs font-semibold text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-focus">
             {isPending ? 'Stop' : 'Retry'}
           </button>
@@ -79,13 +95,13 @@ export function ChatPanel() {
       )}
       <form onSubmit={submit} className="border-t border-divider p-4">
         <label htmlFor="chat-question" className="sr-only">Your question</label>
-        <textarea ref={input} id="chat-question" rows={3} value={draft} disabled={isPending}
+        <textarea ref={input} id="chat-question" rows={3} value={draft} disabled={isPending} maxLength={2000}
           onChange={(event) => setDraft(event.currentTarget.value)} onKeyDown={handleKeyDown}
           placeholder="Ask a question…"
           className="block w-full resize-none rounded-lg border border-stroke bg-canvas px-3 py-2.5 text-sm leading-relaxed focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-60" />
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-[11px] text-subtle">Shift + Enter for a new line</span>
-          <button type="submit" disabled={isPending || !draft.trim()}
+          <button type="submit" disabled={isPending || !draft.trim() || !canSend}
             className="cursor-pointer rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50">
             Send
           </button>
