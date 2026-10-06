@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
+import { Spinner } from '../../components/Spinner'
+import { Icon } from '../../components/Icon'
 import { ChatMessageBubble } from './ChatMessageBubble'
 import { useChat } from './useChat'
 import type { Citation } from './types'
@@ -12,12 +14,15 @@ type ChatPanelProps = {
 }
 
 export function ChatPanel({ sources, documents, onCitation }: ChatPanelProps) {
+  const isPreparing = sources.some((document) => document.availability === 'waiting')
+  const unavailableSources = sources.filter((document) => document.availability === 'failed' || document.availability === 'no_text')
   const canSend = sources.length > 0 && sources.every((document) => document.availability === 'ready')
   const { messages, draft, setDraft, attempt, error, sendMessage, stop, retry, newChat } = useChat(sources.map((doc) => doc.id), canSend)
   const availableIds = documents.map((doc) => doc.id)
   const transcript = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const followResponse = useRef(true)
+  const wasPending = useRef(false)
   const isPending = attempt?.status === 'generating'
 
   useEffect(() => {
@@ -26,7 +31,8 @@ export function ChatPanel({ sources, documents, onCitation }: ChatPanelProps) {
   }, [messages, attempt])
 
   useEffect(() => {
-    if (!isPending) input.current?.focus()
+    if (wasPending.current && !isPending) input.current?.focus()
+    wasPending.current = isPending
   }, [isPending])
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -43,33 +49,30 @@ export function ChatPanel({ sources, documents, onCitation }: ChatPanelProps) {
   }
 
   return (
-    <section className="flex h-[min(72vh,900px)] min-h-[520px] min-w-0 flex-col overflow-hidden rounded-[18px] border border-stroke bg-white shadow-panel xl:h-[calc(min(72vh,900px)+88px)]" aria-labelledby="chat-heading">
-      <div className="flex min-h-[88px] items-center justify-between gap-3 border-b border-divider px-5 py-5">
+    <section className="flex h-[max(480px,calc(100dvh-208px))] min-w-0 flex-col overflow-hidden rounded-xl border border-stroke bg-paper" aria-labelledby="chat-heading">
+      <div className="flex min-h-20 items-center justify-between gap-3 border-b border-divider px-5 py-4">
         <div>
-          <h2 id="chat-heading" className="text-lg font-semibold tracking-[-0.02em]">Chat</h2>
-          <p className="mt-1 text-xs text-subtle">Understand concepts and study step by step.</p>
+          <h2 id="chat-heading" className="flex items-center gap-2 text-sm font-semibold"><Icon name="chat" className="size-4 text-accent" />Study assistant</h2>
         </div>
         <button type="button" onClick={() => { followResponse.current = true; newChat(); input.current?.focus() }}
           disabled={messages.length === 0 && !attempt && !draft && !error}
-          className="shrink-0 cursor-pointer rounded-lg px-2 py-2 text-xs font-semibold text-accent hover:bg-accent-soft focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50">
+          className="shrink-0 cursor-pointer min-h-10 rounded-lg px-2 py-2 text-xs font-semibold text-accent hover:bg-accent-soft focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50">
           New chat
         </button>
       </div>
-      <p className="border-b border-divider px-5 py-3 text-xs leading-relaxed text-muted">
-        {sources.length === 0 ? 'Select PDFs using the checkboxes to ask a question.' :
-          canSend ? `Answers use ${sources.length} selected ${sources.length === 1 ? 'PDF' : 'PDFs'} and include citations.` :
-          sources.filter((doc) => doc.availability !== 'ready').map((doc) =>
-            `${doc.filename}: ${doc.availability === 'no_text' ? 'No usable text. Scanned PDFs require OCR.' :
-              doc.availability === 'failed' ? 'Could not make this PDF available.' : 'Not available yet. Please wait.'}`).join(' ')}
-      </p>
+      {isPreparing && <div className="flex justify-center border-b border-divider py-3"><Spinner label="Preparing selected PDFs for chat" /></div>}
+      {unavailableSources.length > 0 && <div role="alert" className="border-b border-divider px-5 py-3 text-xs leading-relaxed text-danger">
+        {unavailableSources.map((doc) => <p key={doc.id} className="[overflow-wrap:anywhere]">{doc.filename}: {doc.availability === 'no_text' ? 'No readable text. Use a text-based PDF or run OCR.' : 'Preparation failed. Remove this source from chat or upload it again.'}</p>)}
+      </div>}
       <div ref={transcript} onScroll={(event) => {
         const container = event.currentTarget
         followResponse.current = container.scrollHeight - container.scrollTop - container.clientHeight < 64
       }} aria-busy={isPending} role="log" aria-label="Chat messages" aria-live="polite" aria-relevant="additions" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
         {messages.length === 0 && !attempt && (
-          <div className="flex h-full min-h-32 flex-col items-center justify-center text-center">
-            <p className="font-semibold">What would you like to learn?</p>
-            <p className="mt-2 text-sm text-subtle">Ask a question to start a conversation.</p>
+          <div className="flex h-full min-h-48 flex-col justify-center py-5">
+            <h3 className="font-serif text-2xl tracking-[-0.02em]">Turn reading into understanding.</h3>
+            <div className="mt-6" />
+            {['Summarize the key ideas in my selected PDFs.', 'Explain the main concepts in simple terms.', 'How do the ideas in these PDFs connect?'].map((prompt) => <button key={prompt} type="button" disabled={!canSend} onClick={() => { setDraft(prompt); input.current?.focus() }} className="flex min-h-12 cursor-pointer items-center justify-between gap-3 border-b border-divider py-3 text-left text-sm text-accent hover:text-accent-hover focus-visible:outline-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:text-muted"><span>{prompt}</span><Icon name="arrow" className="size-4 shrink-0" /></button>)}
           </div>
         )}
         {messages.map((message) => <ChatMessageBubble key={message.id} role={message.role} content={message.content}
@@ -80,9 +83,8 @@ export function ChatPanel({ sources, documents, onCitation }: ChatPanelProps) {
           <p className="text-xs text-muted">{attempt.status === 'stopped' ? 'Response stopped.' : 'Response incomplete.'} Retry to get a complete answer.</p>
         )}
       </div>
-      <p role="status" className={`px-5 text-xs text-muted ${isPending ? 'pb-3' : 'sr-only'}`}>
-        {isPending ? (attempt?.answer ? 'Generating response…' : 'Preparing response… The model may need time to load.') : (attempt ? 'Response interrupted.' : messages.length ? 'Response complete.' : '')}
-      </p>
+      {isPending && <div className="px-5 pb-3"><Spinner label={attempt?.answer ? 'Generating response' : 'Preparing response'} /></div>}
+      <p role="status" className="sr-only">{!isPending && (attempt ? 'Response interrupted.' : messages.length ? 'Response complete.' : '')}</p>
       {error && <p role="alert" className="px-5 pb-3 text-sm text-danger">{error}</p>}
       {attempt && (
         <div className="flex gap-2 px-5 pb-3">
@@ -95,15 +97,15 @@ export function ChatPanel({ sources, documents, onCitation }: ChatPanelProps) {
       )}
       <form onSubmit={submit} className="border-t border-divider p-4">
         <label htmlFor="chat-question" className="sr-only">Your question</label>
-        <textarea ref={input} id="chat-question" rows={3} value={draft} disabled={isPending} maxLength={2000}
+        <textarea ref={input} id="chat-question" rows={2} value={draft} disabled={isPending || !canSend} maxLength={2000}
           onChange={(event) => setDraft(event.currentTarget.value)} onKeyDown={handleKeyDown}
-          placeholder="Ask a question…"
-          className="block w-full resize-none rounded-lg border border-stroke bg-canvas px-3 py-2.5 text-sm leading-relaxed focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-60" />
+          placeholder={canSend ? 'Ask about your PDFs…' : isPreparing ? 'Preparing PDFs…' : 'Select PDFs for chat…'}
+          className="block w-full resize-none rounded-lg border border-stroke bg-canvas px-3 py-2.5 text-sm leading-relaxed placeholder:text-subtle focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-60" />
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-[11px] text-subtle">Shift + Enter for a new line</span>
           <button type="submit" disabled={isPending || !draft.trim() || !canSend}
-            className="cursor-pointer rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50">
-            Send
+            className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50">
+            Send<Icon name="arrow" className="size-4" />
           </button>
         </div>
       </form>
