@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "retro": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/retro/SKILL.md",
+      "computedHash": "e63bb774fba4e601edfffc56bbd5c938d76c8faa2dff49456dff3b1e679cd3b6"
+    },
+    "triage": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/triage/SKILL.md",
+      "computedHash": "453a7a098edcbec2a6ef67f8aa6720433672ebdf93023c90cefa79f160c72599"
+    }
+  }
+}
