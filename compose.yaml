@@ -5,6 +5,8 @@ x-backend: &backend
   environment:
     DATABASE_URL: postgresql://studymate@postgres:5432/studymate
     PGPASSWORD: ${POSTGRES_PASSWORD:-studymate-local}
+    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b}
 
 services:
   postgres:
@@ -35,6 +37,8 @@ services:
   backend:
     <<: *backend
     restart: unless-stopped
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     command: ['uvicorn', 'studymate.main:app', '--host', '0.0.0.0', '--port', '8000']
     ports:
       - '127.0.0.1:${STUDYMATE_API_PORT:-8000}:8000'
