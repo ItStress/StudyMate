@@ -35,20 +35,22 @@ With Docker running, start the whole app from the repository root:
 docker compose up -d --build --wait
 ```
 
-Open [StudyMate](http://localhost:5173). Compose builds the frontend and Python image, waits for PostgreSQL, applies database migrations, then starts the API, preparation worker, and frontend. The frontend is served by Nginx, which forwards `/api` to FastAPI. Python, uv, and Node.js are only needed inside the images. Startup dependencies use [Compose health and completion conditions](https://docs.docker.com/compose/how-tos/startup-order/).
+Open [StudyMate](http://localhost:5173). Compose builds the frontend and Python image, starts PostgreSQL and Ollama, applies database migrations, and downloads the configured chat model if it is not already available. The API waits for migrations and model setup before starting; the preparation worker and frontend start with their dependencies ready. Nginx serves the frontend and forwards `/api` to FastAPI. Python, uv, Node.js, and Ollama run inside the containers. Startup dependencies use [Compose health and completion conditions](https://docs.docker.com/compose/how-tos/startup-order/).
 
-The API is also available at `http://127.0.0.1:8000`, including `/health` and `/docs`. Set `STUDYMATE_WEB_PORT`, `STUDYMATE_API_PORT`, or `STUDYMATE_POSTGRES_PORT` in your shell or a root `.env` file to override the default host ports (`5173`, `8000`, and `15432`). All host ports are bound to loopback for local use. Set `POSTGRES_PASSWORD` before creating the database volume to override the local default; the API, migrations, and worker use the same password. Existing volumes retain their original password.
+The API is also available at `http://127.0.0.1:8000`, including `/health` and `/docs`. Set `STUDYMATE_WEB_PORT`, `STUDYMATE_API_PORT`, `STUDYMATE_POSTGRES_PORT`, or `STUDYMATE_OLLAMA_PORT` in your shell or a root `.env` file to override the default host ports (`5173`, `8000`, `15432`, and `11434`). Use the root `.env.example` as a reference. All host ports are bound to loopback for local use. Set `POSTGRES_PASSWORD` before creating the database volume to override the local default; the API, migrations, and worker use the same password. Existing volumes retain their original password.
 
-Chat additionally requires Ollama running with the configured model downloaded; follow the [local language model setup](#local-language-model). Compose does not start Ollama or download models. The containerized API uses `http://host.docker.internal:11434` and `qwen3:4b` by default. Set `OLLAMA_BASE_URL` and `OLLAMA_CHAT_MODEL` in the root `.env` file or shell to override them.
+Chat uses `qwen3:4b` by default. Set `OLLAMA_CHAT_MODEL` before running the startup command to select another model; Compose downloads it automatically. The first startup needs internet access and can take several minutes to download the image and model. Later starts reuse downloaded models from the `ollama_data` volume. The API connects directly to `http://ollama:11434` within Docker, independently of the published host port. Stop an existing native or standalone Ollama service using port `11434`, or choose another `STUDYMATE_OLLAMA_PORT`.
+
+The default configuration runs inference on the CPU. GPU acceleration requires a compatible host and additional Docker configuration; see the [official Ollama Docker instructions](https://docs.ollama.com/docker).
 
 After source or schema changes, run the startup command again to rebuild images and apply migrations. This setup serves a built frontend; use the manual setup below for Vite development with live updates. Run only one preparation worker per database, and stop any manually started API or frontend using the same ports before starting the full stack.
 
 ```sh
-docker compose logs -f backend worker
+docker compose logs -f backend worker ollama model-init
 docker compose down
 ```
 
-`docker compose down` stops the app and preserves the named PostgreSQL volume, including uploaded PDFs and preparation results. The `migrate` container exits successfully after applying the schema; this is expected. Services restart automatically when Docker restarts unless explicitly stopped.
+`docker compose down` stops the app and preserves the named volumes, including uploaded PDFs, preparation results, and downloaded models. The `migrate` and `model-init` containers exit successfully after setup; this is expected. Services restart automatically when Docker restarts unless explicitly stopped.
 
 ## Run locally for development
 
@@ -154,47 +156,33 @@ StudyMate uses `qwen3:4b` by default. To use another downloaded model, set `OLLA
 
 ### Run Ollama in Docker
 
-This CPU configuration works on Linux, Windows with Docker Desktop in Linux-container mode, and macOS. On macOS, prefer native Ollama for performance: Docker Desktop does not provide GPU acceleration for Ollama. See the [official Ollama Docker instructions](https://docs.ollama.com/docker) and [GPU limitations](https://github.com/ollama/ollama/blob/main/docs/faq.mdx).
+For the full app, use the [Docker startup command](#run-with-docker); it includes Ollama and model setup automatically.
 
-1. Start Docker. If native Ollama is already running, quit it first to free port `11434`.
-2. Create and start the container. This single-line command works in PowerShell and macOS/Linux shells:
-
-   ```sh
-   docker run -d --name studymate-ollama -p 127.0.0.1:11434:11434 -v studymate-ollama:/root/.ollama ollama/ollama
-   ```
-
-3. Download the model once inside the container:
-
-   ```sh
-   docker exec studymate-ollama ollama pull qwen3:4b
-   ```
-
-   The named volume `studymate-ollama` preserves downloaded models across container restarts and recreation when the same volume is reused. Models downloaded by native Ollama are separate; this container needs its own download.
-
-4. Check the model interactively:
-
-   ```sh
-   docker exec -it studymate-ollama ollama run qwen3:4b
-   ```
-
-   Ask a short question, then enter `/bye` to leave the interactive chat. Ollama keeps running in the container.
-
-5. Start PostgreSQL, FastAPI, and the frontend using the [local development setup](#run-locally-for-development). With FastAPI running directly on the host, no code or environment changes are needed: it connects to `http://127.0.0.1:11434` and uses `qwen3:4b` by default.
-
-For later sessions, reuse the container rather than running `docker run` again:
+For manual frontend/backend development with only PostgreSQL and Ollama in Docker, run from the repository root:
 
 ```sh
-docker start studymate-ollama
+docker compose up -d --wait postgres ollama model-init
 ```
 
-To stop it or inspect startup errors:
+Then start the API, worker, and frontend using the [local development setup](#run-locally-for-development). The host API uses `http://127.0.0.1:11434` by default. If you changed `STUDYMATE_OLLAMA_PORT`, set `OLLAMA_BASE_URL` in the backend shell to the matching host URL. If you changed `OLLAMA_CHAT_MODEL` in the root `.env`, also set that variable in the backend shell; the backend does not load the root `.env` file itself.
+
+To inspect the downloaded model or try it interactively:
 
 ```sh
-docker stop studymate-ollama
-docker logs studymate-ollama
+docker compose exec ollama ollama list
+docker compose exec ollama ollama run qwen3:4b
 ```
 
-The repository's `compose.yaml` starts PostgreSQL, migrations, FastAPI, the preparation worker, and the frontend; these commands manage Ollama separately. The containerized API defaults to `http://host.docker.internal:11434` to reach Ollama on the host. Override `OLLAMA_BASE_URL` and `OLLAMA_CHAT_MODEL` in the root `.env` file or shell before starting Compose if needed. On Linux, connect the Ollama container to the Compose network with `docker network connect studymate_default studymate-ollama`, then set `OLLAMA_BASE_URL=http://studymate-ollama:11434` before starting Compose. GPU acceleration on compatible Linux/Windows systems requires additional configuration; consult the official Docker instructions linked above.
+Replace `qwen3:4b` with your configured model if needed. Enter `/bye` to leave the interactive chat; Ollama keeps running. To update an already downloaded model explicitly, run `docker compose exec ollama ollama pull qwen3:4b`. The automatic setup skips models that are already present, allowing cached startups without another model download.
+
+To inspect startup errors or stop the model service:
+
+```sh
+docker compose logs ollama model-init
+docker compose stop ollama
+```
+
+Models downloaded by native Ollama or an earlier standalone container are separate from the Compose volume. On macOS, native Ollama can offer better inference performance; Docker GPU support depends on the host. See the [official Ollama Docker instructions](https://docs.ollama.com/docker) for hardware-specific setup.
 
 ### Response behavior
 
@@ -202,7 +190,7 @@ The backend calls Ollama asynchronously with thinking mode disabled. The React c
 
 The system instruction makes StudyMate a patient study tutor: it replies in the question's language, explains unfamiliar terms, uses examples when helpful, and adapts to the requested level. It must not claim to read uploaded PDFs or invent page citations. Users can paste a passage for explanation while PDF retrieval is being developed.
 
-The Ollama read timeout is 180 seconds of inactivity; a stream that continues delivering chunks can run longer. The first answer can take longer while Ollama loads the model. If `/api/chat` times out, try a question directly with `ollama run qwen3:4b` (native installation) or `docker exec -it studymate-ollama ollama run qwen3:4b` (Docker) to check whether the model runs on your computer.
+The Ollama read timeout is 180 seconds of inactivity; a stream that continues delivering chunks can run longer. The first answer can take longer while Ollama loads the model. If `/api/chat` times out, try a question directly with `ollama run qwen3:4b` (native installation) or `docker compose exec ollama ollama run qwen3:4b` (Docker) to check whether the model runs on your computer.
 
 ## Using the chat
 

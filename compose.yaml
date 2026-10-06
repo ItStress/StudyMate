@@ -5,10 +5,38 @@ x-backend: &backend
   environment:
     DATABASE_URL: postgresql://studymate@postgres:5432/studymate
     PGPASSWORD: ${POSTGRES_PASSWORD:-studymate-local}
-    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    OLLAMA_BASE_URL: http://ollama:11434
     OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b}
 
 services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    ports:
+      - '127.0.0.1:${STUDYMATE_OLLAMA_PORT:-11434}:11434'
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ['CMD', 'ollama', 'list']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  model-init:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b}
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - 'ollama show "$$OLLAMA_CHAT_MODEL" >/dev/null 2>&1 || ollama pull "$$OLLAMA_CHAT_MODEL"'
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   postgres:
     image: postgres:17
     restart: unless-stopped
@@ -37,8 +65,6 @@ services:
   backend:
     <<: *backend
     restart: unless-stopped
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
     command: ['uvicorn', 'studymate.main:app', '--host', '0.0.0.0', '--port', '8000']
     ports:
       - '127.0.0.1:${STUDYMATE_API_PORT:-8000}:8000'
@@ -46,6 +72,10 @@ services:
       postgres:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
+      model-init:
         condition: service_completed_successfully
     healthcheck:
       test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
@@ -81,3 +111,4 @@ services:
 
 volumes:
   postgres_data:
+  ollama_data:
