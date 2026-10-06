@@ -1,2 +1,32 @@
+# Local environment and secrets
 .env
+.env.*
+!.env.example
+.venv/
+
+# Local working files and dependency caches
+.scratch/
 .uv-cache/
+node_modules/
+
+# Generated build and test output
+dist/
+dist-ssr/
+build/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage/
+htmlcov/
+
+# Logs and machine-specific files
+*.log
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

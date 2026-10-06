@@ -1,6 +1,15 @@
+x-backend: &backend
+  image: studymate-backend:local
+  build:
+    context: ./backend
+  environment:
+    DATABASE_URL: postgresql://studymate@postgres:5432/studymate
+    PGPASSWORD: ${POSTGRES_PASSWORD:-studymate-local}
+
 services:
   postgres:
     image: postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: studymate
       POSTGRES_USER: studymate
@@ -12,6 +21,56 @@ services:
       - ./backend/docker-init/01-test-db.sql:/docker-entrypoint-initdb.d/01-test-db.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U studymate -d studymate']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *backend
+    command: ['studymate-migrate']
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    <<: *backend
+    restart: unless-stopped
+    command: ['uvicorn', 'studymate.main:app', '--host', '0.0.0.0', '--port', '8000']
+    ports:
+      - '127.0.0.1:${STUDYMATE_API_PORT:-8000}:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  worker:
+    <<: *backend
+    restart: unless-stopped
+    command: ['studymate-worker']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${STUDYMATE_WEB_PORT:-5173}:80'
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']
       interval: 5s
       timeout: 3s
       retries: 10

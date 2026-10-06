@@ -1,0 +1,11 @@
+.venv
+.env
+.env.*
+__pycache__
+*.py[cod]
+.uv-cache
+tests
+docker-init
+dist
+build
+*.egg-info

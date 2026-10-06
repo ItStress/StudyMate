@@ -27,7 +27,28 @@ StudyMate/
 └── frontend/   React, TypeScript, and Vite application
 ```
 
-## Run locally
+## Run with Docker
+
+With Docker running, start the whole app from the repository root:
+
+```sh
+docker compose up -d --build --wait
+```
+
+Open [StudyMate](http://localhost:5173). Compose builds the frontend and Python image, waits for PostgreSQL, applies database migrations, then starts the API, preparation worker, and frontend. The frontend is served by Nginx, which forwards `/api` to FastAPI. Python, uv, and Node.js are only needed inside the images. Startup dependencies use [Compose health and completion conditions](https://docs.docker.com/compose/how-tos/startup-order/).
+
+The API is also available at `http://127.0.0.1:8000`, including `/health` and `/docs`. Set `STUDYMATE_WEB_PORT`, `STUDYMATE_API_PORT`, or `STUDYMATE_POSTGRES_PORT` in your shell or a root `.env` file to override the default host ports (`5173`, `8000`, and `15432`). All host ports are bound to loopback for local use. Set `POSTGRES_PASSWORD` before creating the database volume to override the local default; the API, migrations, and worker use the same password. Existing volumes retain their original password.
+
+After source or schema changes, run the startup command again to rebuild images and apply migrations. This setup serves a built frontend; use the manual setup below for Vite development with live updates. Run only one preparation worker per database, and stop any manually started API or frontend using the same ports before starting the full stack.
+
+```sh
+docker compose logs -f backend worker
+docker compose down
+```
+
+`docker compose down` stops the app and preserves the named PostgreSQL volume, including uploaded PDFs and preparation results. The `migrate` container exits successfully after applying the schema; this is expected. Services restart automatically when Docker restarts unless explicitly stopped.
+
+## Run locally for development
 
 You will need Docker, Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), and a Node.js installation compatible with the Vite version in `frontend/package.json`.
 
