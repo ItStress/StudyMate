@@ -1,36 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import vm from 'node:vm'
-import ts from 'typescript'
+import { createModuleLoader } from './moduleLoader.mjs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-const context = vm.createContext({})
-const modules = new Map()
-async function loadModule(url) {
-  const key = url.href
-  if (modules.has(key)) return modules.get(key)
-  const source = await readFile(url, 'utf8')
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  })
-  const module = new vm.SourceTextModule(outputText, { context })
-  modules.set(key, module)
-  await module.link(async (specifier) => {
-    if (specifier.startsWith('.')) {
-      return loadModule(new URL(`${specifier}${['types', 'remarkCitations', 'useChat', 'api'].some((name) => specifier.endsWith(name)) ? '.ts' : '.tsx'}`, url))
-    }
-    if (modules.has(specifier)) return modules.get(specifier)
-    const exports = await import(specifier)
-    const dependency = new vm.SyntheticModule(Object.keys(exports), function () {
-      for (const [name, value] of Object.entries(exports)) this.setExport(name, value)
-    }, { context })
-    modules.set(specifier, dependency)
-    return dependency
-  })
-  return module
-}
+const loadModule = createModuleLoader()
 const module = await loadModule(new URL('../src/features/chat/ChatMessageBubble.tsx', import.meta.url))
 await module.evaluate()
 const { ChatMessageBubble } = module.namespace

@@ -1,6 +1,3 @@
-from collections.abc import AsyncIterator
-from contextlib import aclosing
-import json
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -10,7 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from studymate.llm import generate_answer, stream_answer
-from studymate.rag import ABSTENTION, Citation, prepare_context, validate_answer
+from studymate.rag import Citation, prepare_context, validate_answer
+from studymate.chat_events import answer_events
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -53,34 +51,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     question, context, history, citations = await context_for(request)
 
-    async def events() -> AsyncIterator[str]:
-        answer = ""
-        prefix = ""
-        decided = False
-        try:
-            async with aclosing(stream_answer(question, history=history, context=context)) as upstream:
-                async for event in upstream:
-                    if event['type'] == 'delta':
-                        text = str(event['content'])
-                        answer += text
-                        if not decided:
-                            prefix += text
-                            candidate = prefix.lstrip()
-                            if ABSTENTION.startswith(candidate):
-                                continue
-                            decided = True
-                            text = candidate[len(ABSTENTION):].lstrip() if candidate.startswith(ABSTENTION) else prefix
-                        if text:
-                            yield json.dumps({"type": "delta", "content": text}, ensure_ascii=False) + "\n"
-                    elif event['type'] == 'done':
-                        _, used, grounded = validate_answer(answer, citations)
-                        yield json.dumps({"type": "done", "citations": [c.model_dump(mode='json') for c in used],
-                            "grounded": grounded}, ensure_ascii=False) + "\n"
-                    else:
-                        yield json.dumps(event, ensure_ascii=False) + "\n"
-        except HTTPException as error:
-            yield json.dumps({"type": "error", "status": error.status_code, "detail": error.detail}) + "\n"
-
-    return StreamingResponse(events(), media_type="application/x-ndjson", headers={
+    return StreamingResponse(answer_events(stream_answer(question, history=history, context=context), citations), media_type="application/x-ndjson", headers={
         "Cache-Control": "no-cache", "X-Accel-Buffering": "no",
     })

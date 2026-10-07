@@ -33,7 +33,7 @@ class ChatApiTests(unittest.TestCase):
 
     def request_with_transport(self, handler: httpx.MockTransport, history: list[dict] | None = None) -> httpx.Response:
         ollama_client = httpx.AsyncClient(transport=handler)
-        with patch("studymate.llm.httpx.AsyncClient", return_value=ollama_client):
+        with patch("studymate.llm.client.httpx.AsyncClient", return_value=ollama_client):
             payload = {"document_ids": ["00000000-0000-0000-0000-000000000001"], "question": "  Explain gravity  "}
             if history is not None:
                 payload["history"] = history

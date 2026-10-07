@@ -36,8 +36,8 @@ class RetrievalIntegrationTests(DocumentTestCase):
 
     def index(self):
         sync_jobs(self.worker, IDENTITY)
-        with patch('studymate.indexing.embed', side_effect=vectors), \
-                patch('studymate.indexing.model_identity', AsyncMock(return_value=IDENTITY)):
+        with patch('studymate.indexing.jobs.embed', side_effect=vectors), \
+                patch('studymate.indexing.jobs.model_identity', AsyncMock(return_value=IDENTITY)):
             while asyncio.run(process_index_next(self.worker, IDENTITY)):
                 pass
 
@@ -49,8 +49,8 @@ class RetrievalIntegrationTests(DocumentTestCase):
         self.assertTrue(rows)
         self.assertTrue(all(row['document_id'] == first for row in rows))
         self.assertTrue(any(row['page_number'] == 2 and 'Photosynthesis' in row['text'] for row in rows))
-        with patch('studymate.rag.model_identity', AsyncMock(return_value=IDENTITY)), \
-                patch('studymate.rag.embed', side_effect=vectors), \
+        with patch('studymate.rag.context.model_identity', AsyncMock(return_value=IDENTITY)), \
+                patch('studymate.rag.context.embed', side_effect=vectors), \
                 patch('studymate.chat.generate_answer', AsyncMock(return_value='Plants use sunlight [1].')):
             response = self.client.post('/api/chat', json={'question': 'Come funziona la fotosintesi?', 'document_ids': [str(first)]})
         self.assertEqual(response.status_code, 200)
@@ -85,7 +85,7 @@ class RetrievalIntegrationTests(DocumentTestCase):
     def test_retry_recovery_and_atomic_visibility(self):
         document_id = self.prepare(['Evidence'])
         sync_jobs(self.worker, IDENTITY)
-        with patch('studymate.indexing.embed', AsyncMock(side_effect=HTTPException(503, 'Unavailable'))):
+        with patch('studymate.indexing.jobs.embed', AsyncMock(side_effect=HTTPException(503, 'Unavailable'))):
             asyncio.run(process_index_next(self.worker, IDENTITY))
         state = self.worker.execute('SELECT * FROM document_indexes WHERE document_id = %s', (document_id,)).fetchone()
         self.assertEqual(state['status'], 'queued')
@@ -96,8 +96,8 @@ class RetrievalIntegrationTests(DocumentTestCase):
             metadata = self.client.get('/api/documents').json()
             self.assertEqual(next(doc for doc in metadata if doc['id'] == str(document_id))['availability'], 'waiting')
             return await vectors(texts)
-        with patch('studymate.indexing.embed', side_effect=inspect), \
-                patch('studymate.indexing.model_identity', AsyncMock(return_value=IDENTITY)):
+        with patch('studymate.indexing.jobs.embed', side_effect=inspect), \
+                patch('studymate.indexing.jobs.model_identity', AsyncMock(return_value=IDENTITY)):
             asyncio.run(process_index_next(self.worker, IDENTITY))
         self.assertEqual(self.worker.execute('SELECT status FROM document_indexes WHERE document_id = %s',
             (document_id,)).fetchone()['status'], 'ready')
@@ -114,8 +114,8 @@ class RetrievalIntegrationTests(DocumentTestCase):
                 else:
                     self.client.delete(f'/api/documents/{document_id}')
                 return await vectors(texts)
-            with patch('studymate.indexing.embed', side_effect=interrupt), \
-                    patch('studymate.indexing.model_identity', AsyncMock(return_value=IDENTITY)):
+            with patch('studymate.indexing.jobs.embed', side_effect=interrupt), \
+                    patch('studymate.indexing.jobs.model_identity', AsyncMock(return_value=IDENTITY)):
                 asyncio.run(process_index_next(self.worker, IDENTITY))
             count = self.worker.execute('SELECT count(*) AS n FROM retrieval_units u JOIN document_indexes i ON i.id=u.index_id WHERE i.document_id=%s',
                 (document_id,)).fetchone()['n']
@@ -128,8 +128,8 @@ class RetrievalIntegrationTests(DocumentTestCase):
             if any(len(text) > 200 for text in texts):
                 raise InputTooLong()
             return await vectors(texts)
-        with patch('studymate.indexing.embed', side_effect=small_window), \
-                patch('studymate.indexing.model_identity', AsyncMock(return_value=IDENTITY)):
+        with patch('studymate.indexing.jobs.embed', side_effect=small_window), \
+                patch('studymate.indexing.jobs.model_identity', AsyncMock(return_value=IDENTITY)):
             asyncio.run(process_index_next(self.worker, IDENTITY))
         rows = self.worker.execute('SELECT u.text FROM retrieval_units u JOIN document_indexes i ON i.id=u.index_id WHERE i.document_id=%s',
             (document_id,)).fetchall()
@@ -154,7 +154,7 @@ class RetrievalIntegrationTests(DocumentTestCase):
         document_id = self.prepare(['Retained evidence'])
         self.index()
         self.client.post(f'/api/documents/{document_id}/prepare')
-        with patch('studymate.worker.extract_pages', side_effect=ValueError('failed extraction')):
+        with patch('studymate.preparation.pipeline.extract_pages', side_effect=ValueError('failed extraction')):
             while process_next(self.worker):
                 pass
         self.assertTrue(retrieve([document_id], IDENTITY, [1.0] * 768, 'evidence'))
@@ -170,7 +170,7 @@ class RetrievalIntegrationTests(DocumentTestCase):
     def test_invalid_embedding_fails_without_publishing_units(self):
         document_id = self.prepare(['Evidence'])
         sync_jobs(self.worker, IDENTITY)
-        with patch('studymate.indexing.embed', AsyncMock(side_effect=HTTPException(502, 'The embedding model returned invalid vectors'))):
+        with patch('studymate.indexing.jobs.embed', AsyncMock(side_effect=HTTPException(502, 'The embedding model returned invalid vectors'))):
             asyncio.run(process_index_next(self.worker, IDENTITY))
         state = self.worker.execute('SELECT id, status FROM document_indexes WHERE document_id = %s', (document_id,)).fetchone()
         self.assertEqual(state['status'], 'failed')

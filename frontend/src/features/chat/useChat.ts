@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { streamQuestion } from './api'
-import type { ChatMessage } from './types'
-
-type Attempt = { question: string; answer: string; documentIds: string[]; status: 'generating' | 'stopped' | 'failed' }
+import type { ChatAttempt, ChatMessage } from './types'
 
 export function useChat(documentIds: string[], canSend: boolean) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
-  const [attempt, setAttempt] = useState<Attempt | null>(null)
+  const [attempt, setAttempt] = useState<ChatAttempt | null>(null)
   const [error, setError] = useState('')
   const activeRequest = useRef<AbortController | null>(null)
 

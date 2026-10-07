@@ -1,38 +1,16 @@
 import { DocumentPanel } from './features/documents/DocumentPanel'
 import { PdfPreview } from './features/documents/PdfPreview'
-import { usePdfDocuments } from './features/documents/usePdfDocuments'
+import { useWorkspace } from './features/workspace/useWorkspace'
+import { WorkspaceNavigation } from './features/workspace/WorkspaceNavigation'
 import { ChatPanel } from './features/chat/ChatPanel'
-import { useState } from 'react'
-import type { Citation } from './features/chat/types'
 import { Icon } from './components/Icon'
 
 export default function App() {
   const {
-    documents,
-    selectedId,
-    selectedDocument,
-    error,
-    isLoading,
-    isUploading,
-    deletingId,
-    addFiles,
-    selectDocument,
-    removeDocument,
-  } = usePdfDocuments()
-  const [sourceIds, setSourceIds] = useState<string[]>([])
-  const [workspaceView, setWorkspaceView] = useState<'reading' | 'chat'>('reading')
-  const [preview, setPreview] = useState({ id: '', page: 1, navigation: 0 })
-  const sources = documents.filter((doc) => sourceIds.includes(doc.id)).sort((a, b) => a.id.localeCompare(b.id))
-
-  function openDocument(id: string, page = 1) {
-    selectDocument(id)
-    setPreview((current) => ({ id, page, navigation: current.navigation + 1 }))
-  }
-
-  function openCitation(citation: Citation) {
-    openDocument(citation.document_id, citation.page_number)
-    setWorkspaceView('reading')
-  }
+    documents, selectedId, selectedDocument, error, isLoading, isUploading, deletingId,
+    addFiles, removeDocument, sources, workspaceView, setWorkspaceView, preview,
+    openDocument, openCitation, toggleSource,
+  } = useWorkspace()
 
   return (
     <main className="min-h-screen bg-canvas text-ink">
@@ -58,15 +36,13 @@ export default function App() {
             isUploading={isUploading}
             deletingId={deletingId}
             sourceIds={sources.map((doc) => doc.id)}
-            onToggleSource={(id) => setSourceIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
+            onToggleSource={toggleSource}
             onFilesSelected={addFiles}
             onSelectDocument={(id) => { openDocument(id); setWorkspaceView('reading') }}
             onRemoveDocument={removeDocument}
           />
           <div className="min-w-0 lg:col-start-2 xl:contents">
-            <nav aria-label="Workspace view" className="mb-3 flex gap-1 rounded-xl border border-stroke bg-paper p-1 xl:hidden">
-              {(['reading', 'chat'] as const).map((view) => <button key={view} type="button" aria-pressed={workspaceView === view} onClick={() => setWorkspaceView(view)} className={`flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg text-sm font-semibold focus-visible:outline-2 focus-visible:outline-focus ${workspaceView === view ? 'bg-accent text-white' : 'text-muted hover:bg-accent-soft'}`}><Icon name={view === 'reading' ? 'book' : 'chat'} className="size-4" />{view === 'reading' ? 'Reading' : 'Chat'}{view === 'chat' && sources.length > 0 && <span className="text-xs">({sources.length})</span>}</button>)}
-            </nav>
+            <WorkspaceNavigation workspaceView={workspaceView} sourceCount={sources.length} onChange={setWorkspaceView} />
             <div className={workspaceView === 'reading' ? 'min-w-0' : 'hidden xl:block xl:min-w-0'}>
               <PdfPreview document={selectedDocument} page={preview.id === selectedId ? preview.page : 1} navigation={preview.navigation} />
             </div>

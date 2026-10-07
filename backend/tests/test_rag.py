@@ -104,11 +104,11 @@ class EmbeddingTests(unittest.IsolatedAsyncioTestCase):
         row = evidence()
         identity = EmbeddingIdentity('embeddinggemma:300m', 'digest')
         history = [{'role': 'user', 'content': 'Explain photosynthesis'}]
-        with patch('studymate.rag.model_identity', AsyncMock(return_value=identity)), \
-                patch('studymate.rag.validate_sources') as ready, \
-                patch('studymate.rag.generate_answer', AsyncMock(return_value='How does photosynthesis work?')) as rewrite, \
-                patch('studymate.rag.embed', AsyncMock(return_value=[[1] * 768])) as embedding, \
-                patch('studymate.rag.retrieve', return_value=[row]) as search:
+        with patch('studymate.rag.context.model_identity', AsyncMock(return_value=identity)), \
+                patch('studymate.rag.context.validate_sources') as ready, \
+                patch('studymate.rag.context.generate_answer', AsyncMock(return_value='How does photosynthesis work?')) as rewrite, \
+                patch('studymate.rag.context.embed', AsyncMock(return_value=[[1] * 768])) as embedding, \
+                patch('studymate.rag.context.retrieve', return_value=[row]) as search:
             _, _, citations = await prepare_context('How does it work?', history, [row['document_id']])
             ready.assert_called_once_with([row['document_id']], identity)
             self.assertEqual(rewrite.call_args.kwargs['history'], history)

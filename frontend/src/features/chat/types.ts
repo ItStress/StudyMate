@@ -23,3 +23,5 @@ export type ChatResponse = {
   citations: Citation[]
   grounded: boolean
 }
+
+export type ChatAttempt = { question: string; answer: string; documentIds: string[]; status: 'generating' | 'stopped' | 'failed' }

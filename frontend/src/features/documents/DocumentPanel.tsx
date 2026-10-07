@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react'
 import { Spinner } from '../../components/Spinner'
 import { Icon } from '../../components/Icon'
 import type { PdfDocument } from './types'
+import { DocumentRow } from './DocumentRow'
 
 type DocumentPanelProps = {
   documents: PdfDocument[]
@@ -52,18 +53,10 @@ export function DocumentPanel({ documents, selectedId, error, isLoading, isUploa
       {documents.length === 0 ? <div className="py-8 text-sm leading-relaxed text-muted"><p className="font-semibold text-ink">{isLoading ? 'Loading your library…' : 'Start with a PDF.'}</p></div> : <>
         <p className="mt-4 mb-2 text-xs leading-relaxed text-muted">Check the PDFs you want to use in chat.</p>
         <ul className="max-h-60 space-y-2 overflow-y-auto lg:max-h-[calc(100dvh-460px)] lg:min-h-40">
-          {filtered.map((document) => <li key={document.id} className={`rounded-xl border ${selectedId === document.id ? 'border-accent/40 bg-accent-selected' : 'border-transparent hover:bg-accent-soft'}`}>
-            <div className="flex items-start gap-2 p-3">
-              <input type="checkbox" checked={sourceIds.includes(document.id)} onChange={() => onToggleSource(document.id)} aria-label={`Use ${document.filename} in chat`} className="mt-1 size-4 shrink-0 cursor-pointer accent-accent focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-focus" />
-              <button type="button" aria-pressed={document.id === selectedId} onClick={() => onSelectDocument(document.id)} className="min-w-0 flex-1 cursor-pointer text-left focus-visible:rounded focus-visible:outline-2 focus-visible:outline-focus">
-                <span className="block text-sm font-medium leading-snug [overflow-wrap:anywhere]">{document.filename}</span>
-                <span className="mt-1.5 block text-xs tabular-nums text-muted">{document.page_count} {document.page_count === 1 ? 'page' : 'pages'} · {(document.size_bytes / 1024 / 1024).toFixed(1)} MiB</span>
-                <span className={`mt-2 inline-flex items-center gap-1.5 text-xs ${document.availability === 'failed' || document.availability === 'no_text' ? 'text-danger' : 'text-accent'}`}>{document.availability === 'waiting' ? <Spinner label={`Preparing ${document.filename} for chat`} /> : <><span className={`size-1.5 rounded-full ${document.availability === 'ready' ? 'bg-accent' : 'bg-danger'}`} />{document.availability === 'ready' ? 'Ready' : document.availability === 'no_text' ? 'No readable text' : 'Preparation failed'}</>}</span>
-              </button>
-              <button type="button" aria-label={`Remove ${document.filename}`} title={`Remove ${document.filename}`} disabled={deletingId !== null} onClick={() => setConfirmId(document.id)} className="-mr-1 grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-danger focus-visible:outline-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50"><Icon name="trash" className="size-4" /></button>
-            </div>
-            {confirmId === document.id && <div className="border-t border-stroke p-3 text-xs"><p className="leading-relaxed">Remove this PDF from your library?</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => { onRemoveDocument(document.id); setConfirmId(null) }} className="min-h-9 cursor-pointer rounded-md bg-danger px-3 font-semibold text-white focus-visible:outline-2 focus-visible:outline-focus">Remove PDF</button><button type="button" onClick={() => setConfirmId(null)} className="min-h-9 cursor-pointer rounded-md px-3 text-muted hover:bg-paper focus-visible:outline-2 focus-visible:outline-focus">Keep it</button></div></div>}
-          </li>)}
+          {filtered.map((document) => <DocumentRow key={document.id} document={document}
+            isSelected={selectedId === document.id} isSource={sourceIds.includes(document.id)}
+            deletionDisabled={deletingId !== null} isConfirming={confirmId === document.id} setConfirmId={setConfirmId}
+            onToggleSource={onToggleSource} onSelectDocument={onSelectDocument} onRemoveDocument={onRemoveDocument} />)}
         </ul>
         {filtered.length === 0 && <p role="status" className="py-5 text-sm text-muted">No documents match “{query}”.</p>}
       </>}

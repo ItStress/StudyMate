@@ -43,7 +43,7 @@ class ChatStreamTests(unittest.TestCase):
         self.environment = patch.dict(os.environ, {'OLLAMA_CHAT_MODEL': 'test-model'})
         self.environment.start()
         self.preparation = patch('studymate.chat.prepare_context', side_effect=prepared_context)
-        self.validation = patch('studymate.chat.validate_answer', side_effect=lambda answer, _: (answer, [], False))
+        self.validation = patch('studymate.chat_events.validate_answer', side_effect=lambda answer, _: (answer, [], False))
         self.preparation.start()
         self.validation.start()
 
@@ -54,7 +54,7 @@ class ChatStreamTests(unittest.TestCase):
 
     def request(self, transport, **payload):
         client = httpx.AsyncClient(transport=transport)
-        with patch('studymate.llm.httpx.AsyncClient', return_value=client):
+        with patch('studymate.llm.client.httpx.AsyncClient', return_value=client):
             response = self.client.post('/api/chat/stream', json={'document_ids': ['00000000-0000-0000-0000-000000000001'], 'question': 'Explain gravity', **payload})
         return response, [json.loads(line) for line in response.text.splitlines()]
 
@@ -188,7 +188,7 @@ class StreamCancellationTests(unittest.IsolatedAsyncioTestCase):
         stream = ChunkStream([chunk('<answer>First'), chunk('Second</answer>', True)])
         client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=stream)))
         with patch.dict(os.environ, {'OLLAMA_CHAT_MODEL': 'test-model'}), patch(
-            'studymate.llm.httpx.AsyncClient', return_value=client
+            'studymate.llm.client.httpx.AsyncClient', return_value=client
         ):
             events = stream_answer('Explain gravity')
             self.assertEqual(await anext(events), {'type': 'delta', 'content': 'First'})

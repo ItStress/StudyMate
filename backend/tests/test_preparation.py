@@ -362,7 +362,7 @@ class PreparationApiTests(DocumentTestCase):
     def test_failure_does_not_publish_and_retry(self) -> None:
         self.drain()
         document_id = self.upload(text_pdf(['Readable'])).json()['id']
-        with patch('studymate.worker.split_chunks', side_effect=ValueError('private diagnostic')):
+        with patch('studymate.preparation.passages.split_chunks', side_effect=ValueError('private diagnostic')):
             self.assertTrue(process_next(self.worker))
         failed = self.metadata(document_id)['preparation']
         self.assertEqual(failed['status'], 'failed')
@@ -395,7 +395,7 @@ class PreparationApiTests(DocumentTestCase):
             self.worker.execute('UPDATE document_preparations SET attempt_id = %s WHERE document_id = %s',
                 (uuid4(), UUID(document_id)))
             return original(text)
-        with patch('studymate.worker.split_chunks', side_effect=invalidate):
+        with patch('studymate.preparation.passages.split_chunks', side_effect=invalidate):
             process_next(self.worker)
         self.assertEqual(self.worker.execute('SELECT count(*) AS n FROM document_pages WHERE document_id = %s',
             (UUID(document_id),)).fetchone()['n'], 0)
@@ -409,7 +409,7 @@ class PreparationApiTests(DocumentTestCase):
         def remove(text):
             self.assertEqual(self.client.delete(f'/api/documents/{document_id}').status_code, 204)
             return []
-        with patch('studymate.worker.split_chunks', side_effect=remove):
+        with patch('studymate.preparation.passages.split_chunks', side_effect=remove):
             process_next(self.worker)
         for suffix in ['pages', 'chunks']:
             self.assertEqual(self.client.get(f'/api/documents/{document_id}/{suffix}').status_code, 404)
@@ -437,7 +437,7 @@ class PreparationApiTests(DocumentTestCase):
                         return conn.execute(query, parameters)
                 yield QueueFailure()
         name = f'atomic-{uuid4()}.pdf'
-        with patch('studymate.documents.connection', failing_connection):
+        with patch('studymate.documents.routes.connection', failing_connection):
             self.assertEqual(self.upload(sample_pdf(), name).status_code, 503)
         self.assertEqual(self.worker.execute('SELECT count(*) AS n FROM documents WHERE filename = %s',
             (name,)).fetchone()['n'], 0)
@@ -453,14 +453,14 @@ class PreparationApiTests(DocumentTestCase):
             self.assertEqual(self.worker.execute('SELECT count(*) AS n FROM document_pages WHERE document_id = %s',
                 (UUID(document_id),)).fetchone()['n'], 0)
             return split_chunks(text)
-        with patch('studymate.worker.split_chunks', side_effect=inspect):
+        with patch('studymate.preparation.passages.split_chunks', side_effect=inspect):
             process_next(self.worker)
         self.assertEqual(self.metadata(document_id)['preparation']['status'], 'ready')
 
     def test_connection_loss_aborts_processing(self) -> None:
         self.drain()
         document_id = self.upload(text_pdf(['First page'])).json()['id']
-        with patch('studymate.worker.normalize_text', side_effect=psycopg.OperationalError('lock session lost')):
+        with patch('studymate.preparation.pipeline.normalize_text', side_effect=psycopg.OperationalError('lock session lost')):
             with self.assertRaises(psycopg.OperationalError):
                 process_next(self.worker)
         self.assertEqual(self.metadata(document_id)['preparation']['status'], 'processing')

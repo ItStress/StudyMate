@@ -1,23 +1,12 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import vm from 'node:vm'
-import ts from 'typescript'
+import { createModuleLoader } from './moduleLoader.mjs'
+import './documents.test.mjs'
+import './workspace.test.mjs'
 
 async function loadModule(file, globals, imports = {}) {
-  const source = await readFile(new URL(`../src/features/chat/${file}`, import.meta.url), 'utf8')
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  })
-  const context = vm.createContext(globals)
-  const module = new vm.SourceTextModule(outputText, { context })
-  await module.link((specifier) => {
-    const exports = imports[specifier]
-    const dependency = new vm.SyntheticModule(Object.keys(exports), function () {
-      for (const [name, value] of Object.entries(exports)) this.setExport(name, value)
-    }, { context })
-    return dependency
-  })
+  const load = createModuleLoader(globals, imports)
+  const module = await load(new URL(`../src/features/chat/${file}`, import.meta.url))
   await module.evaluate()
   return module.namespace
 }

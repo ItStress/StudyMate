@@ -24,6 +24,20 @@ StudyMate/
 └── frontend/   React, TypeScript, and Vite application
 ```
 
+The backend groups document schemas, validation, SQL, and HTTP routes in `documents/`.
+`preparation/` owns passage generation and atomic publication; `extraction/` owns PDF
+layout, evidence detection, and image recovery. `indexing/` owns persistent embedding
+jobs, `rag/` owns source checks, hybrid search, context budgeting, and citations, and
+`llm/` owns prompts, answer filtering, and Ollama requests. The API and worker remain
+available through the same entry points. SQL helpers use their caller's connection;
+preparation and indexing orchestration retain ownership of transaction boundaries.
+
+The frontend keeps document and chat behavior in their feature folders.
+`features/workspace/` coordinates selected chat sources, the reading/chat view, and
+citation navigation. Document rows, the chat transcript, and the composer render
+typed props; the document and chat hooks own their existing request lifecycles.
+`npm run test:chat` also runs document polling and workspace navigation regressions.
+
 ## Run with Docker
 
 With Docker running, start the whole app from the repository root:
